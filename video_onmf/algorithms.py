@@ -152,3 +152,13 @@ def extract_compact_descriptors_into_directory(
             np.save(f, left)
     print(f"Saved to {output_dir}/{video_name}_*.npy successfully!")
     return
+
+
+class VideoDescriptors:
+
+    @classmethod
+    def from_directory(cls):
+        return
+
+    def __init__(self):
+        pass
