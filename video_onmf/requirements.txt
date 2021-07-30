@@ -1,6 +1,7 @@
 ffmpeg
 numpy
-opencv-python
+opencv-contrib-python
 numba
 matplotlib
 jupyter
+pandas

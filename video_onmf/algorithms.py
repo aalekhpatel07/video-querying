@@ -1,6 +1,7 @@
 from typing import (
     Tuple
 )
+from functools import partial
 from pathlib import Path
 import numpy as np
 from numpy.linalg import (
@@ -15,6 +16,7 @@ from numba import (
 )
 from concurrent.futures import ThreadPoolExecutor
 import cv2 as cv
+from .utils import *
 
 
 def get_groups_of_pictures(video_path: str, group_size: int = 30):
@@ -35,15 +37,28 @@ def get_groups_of_pictures(video_path: str, group_size: int = 30):
         yield coll
 
 
-def compute_sift_descriptors(img):
-    return
+def compute_sift_descriptors(img: np.ndarray, sift):
+    gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+    kp, des = sift.detectAndCompute(gray, None)
+    if des is None or not len(des):
+        return None
+    return des
+
+
+def combine_descriptors_per_group_of_picture(gop, sift):
+    arr = []
+    for img in gop:
+        val = compute_sift_descriptors(img, sift)
+        if val is not None:
+            arr.append(val.T)
+    return np.column_stack(arr)
 
 
 def projected_proximal_point_alternating_least_squares(
     matrix: np.ndarray,
-    rank: int,
-    rho: float,
-    maxiter: int
+    rank: int = 50,
+    rho: float = 1,
+    maxiter: int = 100
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Compute the Orthogonal Non-negative Matrix Factorization.
 
@@ -108,3 +123,32 @@ def projected_proximal_point_alternating_least_squares(
 
 def pppals(*args, **kwargs):
     return projected_proximal_point_alternating_least_squares(*args, **kwargs)
+
+
+def extract_compact_descriptors_from_group(group, *args, **kwargs):
+    left, right = projected_proximal_point_alternating_least_squares(
+        matrix=group,
+        *args,
+        **kwargs
+    )
+    return left, right
+
+
+def extract_compact_descriptors_into_directory(
+    frames_grouped_stream,
+    video_name: str,
+    output_dir: Path,
+    sift,
+    *args,
+    **kwargs
+):
+    for idx, gop in enumerate(frames_grouped_stream):
+        descriptors_gop = combine_descriptors_per_group_of_picture(gop, sift)
+        print(f"Extracting compact descriptors for group {idx:03d}")
+        left, right = extract_compact_descriptors_from_group(descriptors_gop, *args, **kwargs)
+        print(f"Saving compact descriptors for group {idx:03d}")
+        save_dir = output_dir / f'{video_name}_{idx:03d}.npy'
+        with open(save_dir, 'wb') as f:
+            np.save(f, left)
+    print(f"Saved to {output_dir}/{video_name}_*.npy successfully!")
+    return
