@@ -7,8 +7,7 @@ import pandas as pd
 
 
 VIDEOS = Path("./data")
-
-sift = cv2.xfeatures2d.SIFT_create()
+PEXELS = VIDEOS / "pexels-tima-miroshnichenko-5377684.mp4"
 
 def main():
 
@@ -18,7 +17,7 @@ def main():
     #     print(left.shape, left)
     #     break
     #
-    video_stream_grouped = alg.get_groups_of_pictures("./data/bunny.mp4", group_size=30)
+    video_stream_grouped = alg.get_groups_of_pictures("./data/pexels-tima-miroshnichenko-5377684.mp4", group_size=30)
     alg.extract_compact_descriptors_into_directory(
         video_stream_grouped,
         video_name='bunny',
@@ -49,4 +48,14 @@ def noise_min(matrix, rank, number=1000):
 
 
 if __name__ == '__main__':
-    main()
+    video_capture = alg.capture_video(PEXELS)
+    pexels_frame_sep = alg.VideoIntoGroupedPictures(
+        video_capture=video_capture,
+        group_size=30
+    )
+
+    with alg.Descriptor('SIFT') as descriptor_instance:
+        for idx, it in enumerate(pexels_frame_sep.group_of_pictures):
+            desc = it.compute_raw_descriptors(descriptor_instance)
+            print(desc.shape)
+            break

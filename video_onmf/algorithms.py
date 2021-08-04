@@ -1,6 +1,21 @@
+import functools
 from typing import (
-    Tuple
+    Tuple,
+    Dict,
+    Generator,
+    Union,
+    Iterable,
+    Optional,
+    Literal
 )
+# from itertools import (
+#     groupby,
+#     count,
+#     repeat,
+#     zip_longest,
+#     tee
+# )
+import math
 from functools import partial
 from pathlib import Path
 import numpy as np
@@ -17,48 +32,258 @@ from numba import (
 from concurrent.futures import ThreadPoolExecutor
 import cv2 as cv
 from .utils import *
+from math import inf
 
 
-def get_groups_of_pictures(video_path: str, group_size: int = 30):
-    video_stream = cv.VideoCapture(video_path)
-    coll = []
+class VideoUnReadable(Exception):
+    """
+    Indicates that a video file could not be read by cv2.
+    """
+    pass
+
+
+class Descriptor:
+    def __init__(self, descriptor_type: str = 'SIFT', *args, **kwargs):
+        self.type = descriptor_type
+        self.descriptor = None
+
+        if not hasattr(cv, f'{descriptor_type}_create'):
+            raise NotImplementedError(f"OpenCV does not understand {descriptor_type}_create()")
+
+        descriptor_ = getattr(cv, f'{descriptor_type}_create', None)
+        if descriptor_ is None or not callable(descriptor_):
+            raise NotImplementedError(f"OpenCV does not understand {descriptor_type}_create()")
+
+        if descriptor_type != 'SIFT':
+            raise NotImplementedError("Only SIFT is supported as of yet.")
+
+        self.descriptor = descriptor_(*args, **kwargs)
+
+    def __enter__(self):
+        return self.descriptor
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        del self.descriptor
+
+
+class GroupOfPictures(np.ndarray):
+    def __new__(cls,
+                video_capture: Optional[cv.VideoCapture],
+                video_start_frame: int,
+                video_end_frame: int,
+                arr: Optional[np.ndarray] = None
+                ):
+
+        # Important if the array is pre-calculated (as in VideoIntoGroupedPictures).
+        if arr is not None:
+            obj = np.asarray(arr).view(cls)
+        else:
+            obj = np.asarray(list(stream(video_capture, start=video_start_frame, end=video_end_frame))).view(cls)
+
+        obj.video_start_frame = video_start_frame
+        obj.video_end_frame = video_end_frame
+
+        return obj
+
+    def __array_finalize__(self, obj):
+        if obj is None:
+            return
+
+        self.video_start_frame = getattr(obj, 'video_start_frame', None)
+        self.video_end_frame = getattr(obj, 'video_end_frame', None)
+
+    @property
+    def __dict__(self):
+        return {
+            'start_frame': self.video_start_frame,
+            'end_frame': self.video_end_frame,
+        }
+
+    def compute_raw_descriptors(self, descriptor) -> np.ndarray:
+
+        get_given_descriptors = partial(compute_descriptors, descriptor=descriptor)
+
+        # for frame in self:
+        #     yield get_given_descriptors(frame)
+
+        return np.column_stack([get_given_descriptors(frame).T for frame in self])
+        # res = np.apply_along_axis(get_given_descriptors, -1, self)
+        # print(res)
+        # return res
+        # ufunc_compute_descriptor = np.frompyfunc(partial(compute_descriptors, descriptor=descriptor), 1, 1)
+        # print(help(ufunc_compute_descriptor))
+        # return ufunc_compute_descriptor(list(self))
+        # gray = cv.cvtColor(self, cv.COLOR_BGR2GRAY)
+        # kp, des = descriptor.detectAndCompute(gray, None)
+        # des /= norm(des, axis=0)
+        # if des is None or not len(des):
+        #     return None
+        # return des
+
+
+class VideoIntoGroupedPictures:
+    def __init__(self,
+                 video_capture: cv.VideoCapture,
+                 video_channels: int = 3,
+                 group_size: int = 30
+                 ):
+        metadata = probe(video_capture)
+
+        frame_stream = stream(video_capture)
+        gops_raw = grouper(frame_stream,
+                           group_size,
+                           )
+        gops_clean = map(np.array, gops_raw)
+
+        self.video_metadata = metadata
+        self.video_channels = video_channels
+        self.group_size = group_size
+        self.group_of_pictures: Generator[GroupOfPictures, None, None] = (
+            GroupOfPictures(video_capture=None,
+                            arr=gop,
+                            video_start_frame=idx * self.group_size,
+                            video_end_frame=idx * self.group_size + len(gop)
+                            ) for idx, gop in enumerate(gops_clean)
+        )
+        self.total_gops = math.ceil(metadata['total_frames'] / self.group_size)
+
+    @property
+    def __dict__(self):
+        return {
+            'video_metadata': self.video_metadata,
+            'group_of_pictures': self.group_of_pictures,
+            'group_size': self.group_size,
+            'video_channels': self.video_channels,
+            'total_gops': self.total_gops
+        }
+
+
+def probe(video: cv.VideoCapture) -> Dict[str, Union[int, float, bool]]:
+    if not video.isOpened():
+        raise VideoUnReadable()
+
+    metadata = {
+        "width": int(video.get(cv.CAP_PROP_FRAME_WIDTH)),
+        "height": int(video.get(cv.CAP_PROP_FRAME_HEIGHT)),
+        "fps": float(video.get(cv.CAP_PROP_FPS)),
+        "total_frames": int(video.get(cv.CAP_PROP_FRAME_COUNT)),
+        "convert_to_rgb": bool(video.get(cv.CAP_PROP_CONVERT_RGB)),
+    }
+
+    return metadata
+
+
+def capture_video(video_path: Union[str, Path]):
+    return cv.VideoCapture(str(video_path))
+
+
+def stream(video_stream: cv.VideoCapture, **kwargs) -> Generator[np.ndarray, None, None]:
+    """Generate a stream of frames from a video.
+
+    If start, or end are specified then frames
+    with index [start, end) are streamed instead
+    of the entire video.
+
+    Args:
+        video_stream: The open video stream.
+        **kwargs: A dict of optional arguments.
+
+    Yields:
+        Consecutive frames from the video.
+    """
+
+    metadata = probe(video_stream)
+
+    start = kwargs.get('start', 0)
+    end = kwargs.get('end', metadata.get('total_frames') + 1)
+
+    ctr = 0
     while video_stream.isOpened():
         is_good, frame = video_stream.read()
-        if not is_good:
-            yield coll
-            coll = []
+        ctr += 1
+        if is_good and start <= ctr < end:
+            yield frame
+        if ctr >= end:
             break
-        if len(coll) < group_size:
-            coll.append(frame)
-        else:
-            yield coll
-            coll = []
-    if len(coll):
-        yield coll
 
 
-def compute_sift_descriptors(img: np.ndarray, sift):
+def grouper(iterable, n):
+    """Collect data into fixed-length chunks or blocks"""
+    # args = list(tee(iter(iterable), n))
+    current = []
+    while True:
+        try:
+            current.append(next(iterable))
+            if len(current) % n == 0:
+                yield current
+                current = []
+        except StopIteration:
+            if len(current):
+                yield current
+            break
+
+
+# def groups_of_pictures(frame_stream: Iterable[np.ndarray],
+#                        width: int,
+#                        height: int,
+#                        group_size: int = 30
+#                        ) -> Generator[np.ndarray, None, None]:
+#     """
+#
+#     Args:
+#         frame_stream:
+#         width:
+#         height:
+#         group_size:
+#
+#     Returns:
+#
+#     """
+#
+#     yield from map(np.array,
+#                    grouper(frame_stream,
+#                            group_size,
+#                            fillvalue=np.empty(shape=(height, width))
+#                            )
+#                    )
+
+
+def compute_descriptors(img: np.ndarray, descriptor):
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-    kp, des = sift.detectAndCompute(gray, None)
+    kp, des = descriptor.detectAndCompute(gray, None)
+    des /= norm(des, axis=0)
     if des is None or not len(des):
         return None
     return des
 
 
+# ufunc_compute_descriptor = np.frompyfunc(compute_sift_descriptors, 1, 1)
+
+
+#
+# def compute_akaze_descriptors(img: np.ndarray, sift):
+#     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+#     kp, des = sift.detectAndCompute(gray, None)
+#     des /= norm(des, axis=0)
+#     if des is None or not len(des):
+#         return None
+#     return des
+
+
 def combine_descriptors_per_group_of_picture(gop, sift):
     arr = []
     for img in gop:
-        val = compute_sift_descriptors(img, sift)
+        val = compute_descriptors(img, sift)
         if val is not None:
             arr.append(val.T)
     return np.column_stack(arr)
 
 
 def projected_proximal_point_alternating_least_squares(
-    matrix: np.ndarray,
-    rank: int = 50,
-    rho: float = 1,
-    maxiter: int = 100
+        matrix: np.ndarray,
+        rank: int = 50,
+        rho: float = 1,
+        maxiter: int = 100
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Compute the Orthogonal Non-negative Matrix Factorization.
 
@@ -135,12 +360,12 @@ def extract_compact_descriptors_from_group(group, *args, **kwargs):
 
 
 def extract_compact_descriptors_into_directory(
-    frames_grouped_stream,
-    video_name: str,
-    output_dir: Path,
-    sift,
-    *args,
-    **kwargs
+        frames_grouped_stream,
+        video_name: str,
+        output_dir: Path,
+        sift,
+        *args,
+        **kwargs
 ):
     for idx, gop in enumerate(frames_grouped_stream):
         descriptors_gop = combine_descriptors_per_group_of_picture(gop, sift)
@@ -150,6 +375,7 @@ def extract_compact_descriptors_into_directory(
         save_dir = output_dir / f'{video_name}_{idx:03d}.npy'
         with open(save_dir, 'wb') as f:
             np.save(f, left)
+        break
     print(f"Saved to {output_dir}/{video_name}_*.npy successfully!")
     return
 
