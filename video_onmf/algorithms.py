@@ -1,3 +1,4 @@
+import abc
 import functools
 from typing import (
     Tuple,
@@ -19,10 +20,12 @@ import math
 from functools import partial
 from pathlib import Path
 import numpy as np
-from numpy.linalg import (
-    inv,
-    norm
-)
+# from numpy.linalg import (
+#     inv,
+#     norm
+# )
+import numpy.linalg
+
 from matplotlib import pyplot as plt
 from numba import (
     jit,
@@ -40,6 +43,13 @@ class VideoUnReadable(Exception):
     Indicates that a video file could not be read by cv2.
     """
     pass
+
+
+class MatrixFactorizer(abc.ABC):
+
+    @abc.abstractmethod
+    def factor(self, matrix: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        pass
 
 
 class Descriptor:
@@ -66,12 +76,23 @@ class Descriptor:
         del self.descriptor
 
 
+class CompactDescriptor:
+    def __init__(self,
+                 left: np.ndarray,
+                 right: np.ndarray,
+                 gop_id: Optional[str] = None
+                 ):
+        pass
+
+
 class GroupOfPictures(np.ndarray):
     def __new__(cls,
                 video_capture: Optional[cv.VideoCapture],
                 video_start_frame: int,
                 video_end_frame: int,
-                arr: Optional[np.ndarray] = None
+                arr: Optional[np.ndarray] = None,
+                gop_id: Optional[str] = None,
+                video_id: Optional[str] = None
                 ):
 
         # Important if the array is pre-calculated (as in VideoIntoGroupedPictures).
@@ -82,6 +103,8 @@ class GroupOfPictures(np.ndarray):
 
         obj.video_start_frame = video_start_frame
         obj.video_end_frame = video_end_frame
+        obj.video_id = video_id
+        obj.gop_id = gop_id
 
         return obj
 
@@ -91,41 +114,90 @@ class GroupOfPictures(np.ndarray):
 
         self.video_start_frame = getattr(obj, 'video_start_frame', None)
         self.video_end_frame = getattr(obj, 'video_end_frame', None)
+        self.video_id = getattr(obj, 'video_id', None)
+        self.gop_id = getattr(obj, 'gop_id', None)
 
     @property
     def __dict__(self):
         return {
             'start_frame': self.video_start_frame,
             'end_frame': self.video_end_frame,
+            'video_id': self.video_id,
+            'gop_id': self.gop_id
         }
 
+    def __str__(self):
+        attrs = [f"{k}={v}" for k, v in self.__dict__.items()]
+        s = f"<GroupOfPictures {', '.join(attrs)}>"
+        return s
+
     def compute_raw_descriptors(self, descriptor) -> np.ndarray:
+        """Compute and stack the descriptors from all the frames within the group.
 
-        get_given_descriptors = partial(compute_descriptors, descriptor=descriptor)
+        Args:
+            descriptor: An instance of cv2.xxxx_create() that will detect and compute
+            the descriptors on the frames.
 
-        # for frame in self:
-        #     yield get_given_descriptors(frame)
+        Returns:
+            A numpy array that contains the descriptors stacked together.
+        """
 
-        return np.column_stack([get_given_descriptors(frame).T for frame in self])
-        # res = np.apply_along_axis(get_given_descriptors, -1, self)
-        # print(res)
-        # return res
-        # ufunc_compute_descriptor = np.frompyfunc(partial(compute_descriptors, descriptor=descriptor), 1, 1)
-        # print(help(ufunc_compute_descriptor))
-        # return ufunc_compute_descriptor(list(self))
-        # gray = cv.cvtColor(self, cv.COLOR_BGR2GRAY)
-        # kp, des = descriptor.detectAndCompute(gray, None)
-        # des /= norm(des, axis=0)
-        # if des is None or not len(des):
-        #     return None
-        # return des
+        descriptors = []
+        for frame in self:
+            computed = compute_raw_descriptors_given_image(frame, descriptor)
+            if computed is None:
+                continue
+            descriptors.append(computed.T)
+
+        stacked = np.column_stack(descriptors)
+        return stacked
+
+
+def compute_raw_descriptors_given_image(img: np.ndarray, descriptor) -> Optional[np.ndarray]:
+    """Compute the given descriptors in a given image.
+
+    Args:
+        img: A numpy array representation of an image.
+        descriptor: The descriptor type to extract.
+
+    Returns:
+        The extracted descriptors.
+    """
+    gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+    kp, des = descriptor.detectAndCompute(gray, None)
+    if des is None or not len(des):
+        return None
+    des /= numpy.linalg.norm(des, axis=0)
+    return des
+
+
+class CompactDescriptorExtractor:
+    def __init__(self,
+                 factorizer: Optional[MatrixFactorizer] = None
+                 ):
+        self._factorizer = factorizer
+        if factorizer is None:
+            self._factorizer = OrthogonalNonnegativeMatrixFactorizer(
+                rank=10,
+                rho=.01,
+                maxiter=100
+            )
+
+    def extract(self, gop: GroupOfPictures, descriptor) -> CompactDescriptor:
+        matrix = gop.compute_raw_descriptors(descriptor)
+        left, right = self._factorizer.factor(matrix)
+        return CompactDescriptor(left, right, gop_id=gop.gop_id)
+
+    def __str__(self):
+        return f"<CompactDescriptorBuilder factorizer={self._factorizer}>"
 
 
 class VideoIntoGroupedPictures:
     def __init__(self,
                  video_capture: cv.VideoCapture,
                  video_channels: int = 3,
-                 group_size: int = 30
+                 group_size: int = 30,
+                 video_id: Optional[str] = None
                  ):
         metadata = probe(video_capture)
 
@@ -138,24 +210,117 @@ class VideoIntoGroupedPictures:
         self.video_metadata = metadata
         self.video_channels = video_channels
         self.group_size = group_size
+        self.total_gops = math.ceil(metadata['total_frames'] / self.group_size)
+        self.video_id = video_id
         self.group_of_pictures: Generator[GroupOfPictures, None, None] = (
             GroupOfPictures(video_capture=None,
                             arr=gop,
                             video_start_frame=idx * self.group_size,
-                            video_end_frame=idx * self.group_size + len(gop)
+                            video_end_frame=idx * self.group_size + len(gop),
+                            video_id=video_id,
+                            gop_id=video_id and f"{video_id}_{idx:03d}"
                             ) for idx, gop in enumerate(gops_clean)
         )
-        self.total_gops = math.ceil(metadata['total_frames'] / self.group_size)
 
     @property
     def __dict__(self):
         return {
-            'video_metadata': self.video_metadata,
-            'group_of_pictures': self.group_of_pictures,
+            'video_id': self.video_id,
             'group_size': self.group_size,
             'video_channels': self.video_channels,
-            'total_gops': self.total_gops
+            'total_gops': self.total_gops,
+            **self.video_metadata
         }
+
+    def __str__(self):
+        attrs = [f"{k}={v}" for k, v in self.__dict__.items()]
+        s = f"<VideoIntoGroupedPictures {' '.join(attrs)}>"
+        return s
+
+    def save_compact_descriptors(self):
+        return
+
+
+class OrthogonalNonnegativeMatrixFactorizer(MatrixFactorizer):
+    """A Solver for ONMF.
+
+    """
+
+    def __init__(self, rank: int, rho: float, maxiter: int):
+        """Construct a Solver for ONMF.
+
+        Args:
+            rank: The desired number of columns in L.
+            rho: Some hyper-parameter that I don't understand yet.
+            maxiter: The maximum number of iterations of improvement.
+        """
+        self.rank = rank
+        self.rho = rho
+        self.maxiter = maxiter
+
+    def factor(self, matrix: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """The Projected Proximal Point Alternating Least Squares algorithm.
+
+        Notes:
+            This algorithm is called "Projected
+            Proximal-point Alternating Least Squares"
+            and is introduced in "Video Querying Via
+            Compact Descriptors Of Visually Salient
+            Objects".
+
+            Given a matrix M of dimensions (m, N),
+            factor it into two matrices L, and R, such that:
+
+            - M ≈ L @ R,
+            - The columns of L are unit vectors,
+            - Every column of R has exactly one 1, and the rest 0,
+            - The (Euclidean) distance between M and L @ R is minimized amongst
+                all possible L, and R with non-negative entries.
+
+
+        Args:
+            matrix: A numpy array of shape (m, N).
+
+        Returns:
+            Matrices L, and R that satisfy the conditions given above.
+        """
+
+        feature_vector_size, total_vectors = matrix.shape
+
+        k = 0
+
+        left: np.ndarray = np.random.random(size=(feature_vector_size, self.rank))
+        right: np.ndarray = np.random.random(size=(self.rank, total_vectors))
+
+        while k < self.maxiter:
+            # Update left.
+            first_term_left = self.rho * left + (matrix @ right.T)
+            second_term_left = (self.rho * np.identity(self.rank)) + (right @ right.T)
+
+            left_hat = first_term_left @ numpy.linalg.inv(second_term_left)
+
+            left_positive = np.abs(left_hat)
+            left_next = left_positive / numpy.linalg.norm(left_positive, axis=0)
+
+            # Update right.
+            first_term_right = self.rho * np.identity(self.rank) + (left.T @ left)
+            second_term_right = self.rho * right + (left_next.T @ matrix)
+
+            left = left_next
+            right_final = numpy.linalg.inv(first_term_right) @ second_term_right
+
+            right = np.zeros_like(right_final)
+            right[np.argmax(right_final, axis=0), range(right_final.shape[-1])] = 1
+
+            k += 1
+
+        return left, right
+
+    def __str__(self):
+        attrs = []
+        for att in ["rank", "rho", "maxiter"]:
+            attrs.append(f"{att}={getattr(self, att)}")
+        return f"<OrthogonalNonnegativeMatrixFactorizer {', '.join(attrs)}>"
 
 
 def probe(video: cv.VideoCapture) -> Dict[str, Union[int, float, bool]]:
@@ -248,15 +413,6 @@ def grouper(iterable, n):
 #                    )
 
 
-def compute_descriptors(img: np.ndarray, descriptor):
-    gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-    kp, des = descriptor.detectAndCompute(gray, None)
-    des /= norm(des, axis=0)
-    if des is None or not len(des):
-        return None
-    return des
-
-
 # ufunc_compute_descriptor = np.frompyfunc(compute_sift_descriptors, 1, 1)
 
 
@@ -270,93 +426,93 @@ def compute_descriptors(img: np.ndarray, descriptor):
 #     return des
 
 
-def combine_descriptors_per_group_of_picture(gop, sift):
-    arr = []
-    for img in gop:
-        val = compute_descriptors(img, sift)
-        if val is not None:
-            arr.append(val.T)
-    return np.column_stack(arr)
+# def combine_descriptors_per_group_of_picture(gop, sift):
+#     arr = []
+#     for img in gop:
+#         val = compute_descriptors(img, sift)
+#         if val is not None:
+#             arr.append(val.T)
+#     return np.column_stack(arr)
 
 
-def projected_proximal_point_alternating_least_squares(
-        matrix: np.ndarray,
-        rank: int = 50,
-        rho: float = 1,
-        maxiter: int = 100
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Compute the Orthogonal Non-negative Matrix Factorization.
+# def projected_proximal_point_alternating_least_squares(
+#         matrix: np.ndarray,
+#         rank: int = 50,
+#         rho: float = 1,
+#         maxiter: int = 100
+# ) -> Tuple[np.ndarray, np.ndarray]:
+#     """Compute the Orthogonal Non-negative Matrix Factorization.
+#
+#     Notes:
+#         This algorithm is called "Projected
+#         Proximal-point Alternating Least Squares"
+#         and is introduced in "Video Querying Via
+#         Compact Descriptors Of Visually Salient
+#         Objects".
+#
+#         Given a matrix M of dimensions (m, N),
+#         factor it into two matrices L, and R, such that:
+#
+#         - M ≈ L @ R,
+#         - The columns of L are unit vectors,
+#         - Every column of R has exactly one 1, and the rest 0,
+#         - The (Euclidean) distance between M and L @ R is minimized amongst
+#             all possible L, and R with non-negative entries.
+#
+#
+#     Args:
+#         matrix: A numpy array of shape (m, N).
+#         rank: The desired number of columns in L.
+#         rho: Some hyper-parameter that I don't understand yet.
+#         maxiter: The maximum number of iterations of improvement.
+#
+#     Returns:
+#         Matrices L, and R that satisfy the conditions given above.
+#     """
+#
+#     feature_vector_size, total_vectors = matrix.shape
+#
+#     k = 0
+#
+#     left: np.ndarray = np.random.random(size=(feature_vector_size, rank))
+#     right: np.ndarray = np.random.random(size=(rank, total_vectors))
+#
+#     while k < maxiter:
+#         # Update left.
+#         first_term_left = rho * left + (matrix @ right.T)
+#         second_term_left = (rho * np.identity(rank)) + (right @ right.T)
+#
+#         left_hat = first_term_left @ inv(second_term_left)
+#
+#         left_positive = np.abs(left_hat)
+#         left_next = left_positive / norm(left_positive, axis=0)
+#
+#         # Update right.
+#         first_term_right = rho * np.identity(rank) + (left.T @ left)
+#         second_term_right = rho * right + (left_next.T @ matrix)
+#
+#         left = left_next
+#         right_final = inv(first_term_right) @ second_term_right
+#
+#         right = np.zeros_like(right_final)
+#         right[np.argmax(right_final, axis=0), range(right_final.shape[-1])] = 1
+#
+#         k += 1
+#
+#     return left, right
+#
+#
+# def pppals(*args, **kwargs):
+#     return projected_proximal_point_alternating_least_squares(*args, **kwargs)
 
-    Notes:
-        This algorithm is called "Projected
-        Proximal-point Alternating Least Squares"
-        and is introduced in "Video Querying Via
-        Compact Descriptors Of Visually Salient
-        Objects".
 
-        Given a matrix M of dimensions (m, N),
-        factor it into two matrices L, and R, such that:
-
-        - M ≈ L @ R,
-        - The columns of L are unit vectors,
-        - Every column of R has exactly one 1, and the rest 0,
-        - The (Euclidean) distance between M and L @ R is minimized amongst
-            all possible L, and R with non-negative entries.
-
-
-    Args:
-        matrix: A numpy array of shape (m, N).
-        rank: The desired number of columns in L.
-        rho: Some hyper-parameter that I don't understand yet.
-        maxiter: The maximum number of iterations of improvement.
-
-    Returns:
-        Matrices L, and R that satisfy the conditions given above.
-    """
-
-    feature_vector_size, total_vectors = matrix.shape
-
-    k = 0
-
-    left: np.ndarray = np.random.random(size=(feature_vector_size, rank))
-    right: np.ndarray = np.random.random(size=(rank, total_vectors))
-
-    while k < maxiter:
-        # Update left.
-        first_term_left = rho * left + (matrix @ right.T)
-        second_term_left = (rho * np.identity(rank)) + (right @ right.T)
-
-        left_hat = first_term_left @ inv(second_term_left)
-
-        left_positive = np.abs(left_hat)
-        left_next = left_positive / norm(left_positive, axis=0)
-
-        # Update right.
-        first_term_right = rho * np.identity(rank) + (left.T @ left)
-        second_term_right = rho * right + (left_next.T @ matrix)
-
-        left = left_next
-        right_final = inv(first_term_right) @ second_term_right
-
-        right = np.zeros_like(right_final)
-        right[np.argmax(right_final, axis=0), range(right_final.shape[-1])] = 1
-
-        k += 1
-
-    return left, right
-
-
-def pppals(*args, **kwargs):
-    return projected_proximal_point_alternating_least_squares(*args, **kwargs)
-
-
-def extract_compact_descriptors_from_group(group, *args, **kwargs):
-    left, right = projected_proximal_point_alternating_least_squares(
-        matrix=group,
-        *args,
-        **kwargs
-    )
-    return left, right
+# def extract_compact_descriptors_from_group(group, *args, **kwargs):
+#     left, right = projected_proximal_point_alternating_least_squares(
+#         matrix=group,
+#         *args,
+#         **kwargs
+#     )
+#     return left, right
 
 
 def extract_compact_descriptors_into_directory(
