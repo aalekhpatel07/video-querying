@@ -1,3 +1,5 @@
+import datetime
+import time
 
 from video_onmf import algorithms as alg
 import numpy as np
@@ -47,15 +49,16 @@ def noise_min(matrix, rank, number=1000):
 
 def main():
     video_capture = alg.capture_video(PEXELS)
+    video_id = "pexels"
 
-    frames_per_group = 14
+    frames_per_group = 30
 
-    compact_descriptors_per_group = 10
+    compact_descriptors_per_group = 30
     some_fancy_hyperparameter_rho = 0.01
     max_number_of_iterations_for_refinement = 100
 
     vid = alg.VideoIntoGroupedPictures(video_capture,
-                                       video_id="bunny",
+                                       video_id=video_id,
                                        group_size=frames_per_group
                                        )
     factorizer = alg.OrthogonalNonnegativeMatrixFactorizer(
@@ -63,6 +66,32 @@ def main():
         rho=some_fancy_hyperparameter_rho,
         maxiter=max_number_of_iterations_for_refinement
     )
+    with alg.Descriptor('SIFT') as d:
+        extractor = alg.CompactDescriptorExtractor(descriptor=d,
+                                                   factorizer=factorizer
+                                                   )
+        extractor.save_from_video(vid, VIDEOS / "descriptors")
+        # it = iter(vid.group_of_pictures)
+        # next(it)
+        # gop = next(it)
+        # extractor.save(gop, VIDEOS / f"descriptors/{gop.gop_id}.mp")
+        # print(gop)
+        # cd, gop1 = extractor.load(VIDEOS / "descriptors/bunny_001.mp")
+        # print(cd)
+        # print(gop1)
+        # print(gop == gop1)
+        # print(cd)
+        # print(gop)
+        # print(gop)
+        # extractor.save(gop, VIDEOS / f"descriptors/{gop.gop_id}.mp")
+        # extractor.
+        # for cdesc in vid.get_compact_descriptors_from(extractor):
+        #     start = datetime.datetime.now()
+        #     alg.CompactDescriptor.decode(cdesc.encode())
+        #     end = datetime.datetime.now()
+        #     print((end - start).total_seconds())
+        #     break
+
     # print(vid)
     # for elem in vid.group_of_pictures:
     #     print(elem)

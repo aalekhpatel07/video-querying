@@ -1,5 +1,6 @@
 import abc
-import functools
+# import functools
+import os
 from typing import (
     Tuple,
     Dict,
@@ -7,7 +8,8 @@ from typing import (
     Union,
     Iterable,
     Optional,
-    Literal
+    Literal,
+    Any
 )
 # from itertools import (
 #     groupby,
@@ -17,25 +19,29 @@ from typing import (
 #     tee
 # )
 import math
-from functools import partial
-from pathlib import Path
-import numpy as np
+# from functools import partial
+# from pathlib import Path
+# import numpy as np
 # from numpy.linalg import (
 #     inv,
 #     norm
 # )
+import numpy as np
 import numpy.linalg
 
-from matplotlib import pyplot as plt
-from numba import (
-    jit,
-    njit,
-    vectorize
-)
+# from matplotlib import pyplot as plt
+# from numba import (
+#     jit,
+#     njit,
+#     vectorize
+# )
 from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import Process, Pool
 import cv2 as cv
 from .utils import *
-from math import inf
+# from math import inf
+import msgpack as mp
+import msgpack_numpy as mnp
 
 
 class VideoUnReadable(Exception):
@@ -77,19 +83,122 @@ class Descriptor:
 
 
 class CompactDescriptor:
+
+    left_shape: Tuple
+    right_shape: Tuple
+    gop_id: str
+
     def __init__(self,
                  left: np.ndarray,
-                 right: np.ndarray,
-                 gop_id: Optional[str] = None
+                 right: Optional[np.ndarray] = None,
+                 gop_id: Optional[str] = None,
                  ):
+        self.left = left
+        self.right = right
+        self.gop_id = gop_id
+
+        self.left_shape = self.left.shape
+        if self.right is not None:
+            self.right_shape = self.right.shape
         pass
+
+    def __str__(self):
+        attrs = [f"{k}={v}" for k, v in self.__dict__.items()]
+        return f"<CompactDescriptor {', '.join(attrs)}>"
+
+    @property
+    def __dict__(self):
+        return {
+            'left_shape': self.left.shape,
+            'right_shape': self.right and self.right.shape,
+            'gop_id': self.gop_id
+        }
+
+    @property
+    def vectors(self):
+        return self.left.T
+
+    def encode(self):
+        left_enc = mp.packb(self.left.T, default=mnp.encode)
+        # right_enc = mp.packb(self.right.T, default=mnp.encode)
+        return mp.packb({
+            'left_enc': left_enc,
+            # 'right_enc': right_enc,
+            'gop_id': self.gop_id
+        })
+
+    @classmethod
+    def decode(cls, obj):
+        dec = mp.unpackb(obj)
+        left_dec = mp.unpackb(dec["left_enc"], object_hook=mnp.decode)
+        # right_dec = mp.unpackb(dec["right_enc"], object_hook=mnp.decode)
+        gop_id = dec["gop_id"]
+
+        return cls(left=left_dec,
+                   # right=right_dec,
+                   gop_id=gop_id
+                   )
+
+    def compare(self):
+        return
+
+    def __eq__(self, other):
+        if not isinstance(other, CompactDescriptor):
+            return False
+        return np.allclose(self.left, other.left)
+
+
+class VideoIntoGroupedPictures:
+    def __init__(self,
+                 video_capture: cv.VideoCapture,
+                 video_channels: int = 3,
+                 group_size: int = 30,
+                 video_id: Optional[str] = None
+                 ):
+        metadata = probe(video_capture)
+
+        frame_stream = stream(video_capture)
+        gops_raw = grouper(frame_stream,
+                           group_size,
+                           )
+        gops_clean = map(np.array, gops_raw)
+
+        self.video_metadata = metadata
+        self.video_channels = video_channels
+        self.group_size = group_size
+        self.total_gops = math.ceil(metadata['total_frames'] / self.group_size)
+        self.video_id = video_id
+        self.group_of_pictures: Generator[GroupOfPictures, None, None] = (
+            GroupOfPictures(video_capture=None,
+                            arr=gop,
+                            video_start_frame=idx * self.group_size,
+                            video_end_frame=idx * self.group_size + len(gop),
+                            video_id=video_id,
+                            gop_id=video_id and f"{video_id}_{idx:03d}"
+                            ) for idx, gop in enumerate(gops_clean)
+        )
+
+    @property
+    def __dict__(self):
+        return {
+            'video_id': self.video_id,
+            'group_size': self.group_size,
+            'video_channels': self.video_channels,
+            'total_gops': self.total_gops,
+            **self.video_metadata
+        }
+
+    def __str__(self):
+        attrs = [f"{k}={v}" for k, v in self.__dict__.items()]
+        s = f"<VideoIntoGroupedPictures {' '.join(attrs)}>"
+        return s
 
 
 class GroupOfPictures(np.ndarray):
     def __new__(cls,
-                video_capture: Optional[cv.VideoCapture],
                 video_start_frame: int,
                 video_end_frame: int,
+                video_capture: Optional[cv.VideoCapture] = None,
                 arr: Optional[np.ndarray] = None,
                 gop_id: Optional[str] = None,
                 video_id: Optional[str] = None
@@ -98,9 +207,10 @@ class GroupOfPictures(np.ndarray):
         # Important if the array is pre-calculated (as in VideoIntoGroupedPictures).
         if arr is not None:
             obj = np.asarray(arr).view(cls)
-        else:
+        elif video_capture is not None:
             obj = np.asarray(list(stream(video_capture, start=video_start_frame, end=video_end_frame))).view(cls)
-
+        else:
+            obj = np.asarray([]).view(cls)
         obj.video_start_frame = video_start_frame
         obj.video_end_frame = video_end_frame
         obj.video_id = video_id
@@ -152,6 +262,16 @@ class GroupOfPictures(np.ndarray):
         stacked = np.column_stack(descriptors)
         return stacked
 
+    def __eq__(self, other):
+        if not isinstance(other, GroupOfPictures):
+            return False
+
+        if self.gop_id == other.gop_id and self.video_id == other.video_id:
+            return True
+        if other.shape != self.shape:
+            return False
+        return np.allclose(self, other)
+
 
 def compute_raw_descriptors_given_image(img: np.ndarray, descriptor) -> Optional[np.ndarray]:
     """Compute the given descriptors in a given image.
@@ -173,8 +293,10 @@ def compute_raw_descriptors_given_image(img: np.ndarray, descriptor) -> Optional
 
 class CompactDescriptorExtractor:
     def __init__(self,
-                 factorizer: Optional[MatrixFactorizer] = None
+                 descriptor,
+                 factorizer: Optional[MatrixFactorizer] = None,
                  ):
+        self.descriptor = descriptor
         self._factorizer = factorizer
         if factorizer is None:
             self._factorizer = OrthogonalNonnegativeMatrixFactorizer(
@@ -183,62 +305,77 @@ class CompactDescriptorExtractor:
                 maxiter=100
             )
 
-    def extract(self, gop: GroupOfPictures, descriptor) -> CompactDescriptor:
-        matrix = gop.compute_raw_descriptors(descriptor)
+    def extract(self, gop: GroupOfPictures) -> CompactDescriptor:
+        print(f"Extracting gop: {gop.gop_id} ...")
+        matrix = gop.compute_raw_descriptors(self.descriptor)
         left, right = self._factorizer.factor(matrix)
+        print(f"Extraction complete for gop: {gop.gop_id} ...")
         return CompactDescriptor(left, right, gop_id=gop.gop_id)
+
+    def save(self, gop: GroupOfPictures, path: Union[str, Path]) -> None:
+        print(f"Extracting descriptors from {gop.gop_id}...")
+        compact_descriptor = self.extract(gop)
+        print(f"Writing descriptors for {gop.gop_id}...")
+        to_dump = {
+            'descriptor': compact_descriptor.encode(),
+            **gop.__dict__
+        }
+        with open(Path(path), 'wb') as f:
+            mp.dump(to_dump, f)
+        print("Saved successfully!")
+
+    def extract_from_video(self,
+                           video: VideoIntoGroupedPictures
+                           ) -> Generator[CompactDescriptor, None, None]:
+        for gop in video.group_of_pictures:
+            yield self.extract(gop)
+
+    def save_from_video(self,
+                        video: VideoIntoGroupedPictures,
+                        directory: Union[Path, str],
+                        ) -> None:
+        print(f"Extracting descriptors from video in {directory}...")
+
+        def _save(x: GroupOfPictures):
+            self.save(x, directory / f"{video.video_id}_{x.gop_id}.mp")
+
+        for gop in video.group_of_pictures:
+            _save(gop)
+        # process_pool = Pool(processes=1)
+        # process_pool.map(_save, video.group_of_pictures)
+
+        #
+        # descriptors = [
+        #     descriptor.encode() for descriptor in self.extract_from_video(video)
+        # ]
+        # print(f"Writing descriptors to file: {path}")
+        # to_dump = {
+        #     'descriptors': descriptors,
+        #     **video.__dict__
+        # }
+        # with open(path, 'wb') as f:
+        #     mp.dump(to_dump, f)
+        # print("Saved successfully.")
+
+    @classmethod
+    def load(cls, path: Union[str, Path]) -> Tuple[CompactDescriptor, GroupOfPictures]:
+        with open(path, 'rb') as f:
+            obj = mp.unpack(f)
+            descriptor = CompactDescriptor.decode(obj['descriptor'])
+            gop = GroupOfPictures(video_start_frame=obj['start_frame'],
+                                  video_end_frame=obj['end_frame'],
+                                  video_id=obj['video_id'],
+                                  gop_id=obj['gop_id']
+                                  )
+            return descriptor, gop
+
+    @classmethod
+    def load_from_video(cls, path: Union[Path, str]):
+
+        return
 
     def __str__(self):
         return f"<CompactDescriptorBuilder factorizer={self._factorizer}>"
-
-
-class VideoIntoGroupedPictures:
-    def __init__(self,
-                 video_capture: cv.VideoCapture,
-                 video_channels: int = 3,
-                 group_size: int = 30,
-                 video_id: Optional[str] = None
-                 ):
-        metadata = probe(video_capture)
-
-        frame_stream = stream(video_capture)
-        gops_raw = grouper(frame_stream,
-                           group_size,
-                           )
-        gops_clean = map(np.array, gops_raw)
-
-        self.video_metadata = metadata
-        self.video_channels = video_channels
-        self.group_size = group_size
-        self.total_gops = math.ceil(metadata['total_frames'] / self.group_size)
-        self.video_id = video_id
-        self.group_of_pictures: Generator[GroupOfPictures, None, None] = (
-            GroupOfPictures(video_capture=None,
-                            arr=gop,
-                            video_start_frame=idx * self.group_size,
-                            video_end_frame=idx * self.group_size + len(gop),
-                            video_id=video_id,
-                            gop_id=video_id and f"{video_id}_{idx:03d}"
-                            ) for idx, gop in enumerate(gops_clean)
-        )
-
-    @property
-    def __dict__(self):
-        return {
-            'video_id': self.video_id,
-            'group_size': self.group_size,
-            'video_channels': self.video_channels,
-            'total_gops': self.total_gops,
-            **self.video_metadata
-        }
-
-    def __str__(self):
-        attrs = [f"{k}={v}" for k, v in self.__dict__.items()]
-        s = f"<VideoIntoGroupedPictures {' '.join(attrs)}>"
-        return s
-
-    def save_compact_descriptors(self):
-        return
 
 
 class OrthogonalNonnegativeMatrixFactorizer(MatrixFactorizer):
