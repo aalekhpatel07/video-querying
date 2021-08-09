@@ -1,14 +1,38 @@
+import time
 import pathlib
 import os
 import mimetypes
 import argparse
 import typing as tp
-from core.perturb import image as pim
-from core.perturb import video as piv
+from core.video_onmf import frames as fm
+from core.video_onmf import utils
+from core.perturb import image
+from core.perturb import video
+import cv2 as cv
+
+
+def get_actions(mime_type: str) -> tp.List[tp.Callable]:
+    actions = []
+    if mime_type == "image":
+        mod = image
+    else:
+        mod = video
+
+    for attr in dir(mod):
+        if (
+            not attr.startswith("_")
+            and hasattr(mod, attr)
+            and callable(getattr(mod, attr))
+        ):
+            actions.append(getattr(mod, attr))
+    return actions
 
 
 def perturb_video(path: pathlib.Path, **kwargs):
-    print(path, kwargs)
+    utils.vsh(
+        fm.from_video(path),
+        transform=mod.flip_horizontal,
+    )
     return 0
 
 
@@ -55,13 +79,14 @@ def media_files(
 def main():
     args = read_parser()
     source, dest = args.source, args.output_dir
-    for mime, path in media_files(source):
-        transformed = None
-        if mime == "image":
-            transformed = perturb_image(path, **args.__dict__)
-        elif mime == "video":
-            transformed = perturb_video(path, **args.__dict__)
-        break
+    print(get_actions("image"))
+    # for mime, path in media_files(source):
+    #     transformed = None
+    #     if mime == "image":
+    #         transformed = perturb_image(path, **args.__dict__)
+    #     elif mime == "video":
+    #         transformed = perturb_video(path, **args.__dict__)
+    #         break
     pass
 
 
