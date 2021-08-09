@@ -20,8 +20,8 @@ class NativeDescriptor:
         if descriptor_ is None or not callable(descriptor_):
             raise NotImplementedError(f"OpenCV does not understand {descriptor_type}_create()")
 
-        if descriptor_type != 'SIFT':
-            raise NotImplementedError("Only SIFT is supported as of yet.")
+        # if descriptor_type != 'SIFT':
+        #    raise NotImplementedError("Only SIFT is supported as of yet.")
 
         self.descriptor = descriptor_(*args, **kwargs)
 

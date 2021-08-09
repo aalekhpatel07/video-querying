@@ -27,6 +27,8 @@ def compute_raw_descriptors_given_image(
         The extracted descriptors.
     """
     top = kwargs.get("raw_top", 100)
+    if img is None:
+        return None
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
     kps, des = descriptor.detectAndCompute(gray, None)
 
@@ -148,25 +150,25 @@ class CompactDescriptorExtractor:
         group_size = kwargs.get('group_size', 30)
 
         for file in os.listdir(inp_dir):
-
-            if os.path.isdir(inp_dir / file):
-                self.save_from_directory(inp_dir / file, out_dir, **kwargs)
+            inp_src = inp_dir / file
+            if os.path.isdir(inp_src):
+                self.save_from_directory(inp_src, out_dir, **kwargs)
             
-            mimetype = mimetypes.guess_type(file)[0]
+            mimetype = mimetypes.guess_type(inp_src)[0]
             if mimetype.startswith("video"):
                 self.save_from_video(
-                    fm.from_video_grouped(inp_dir / file, group_size),
-                    out_dir / pathlib.Path(inp_dir / file).with_suffix(".mp"),
-                    source_id = pathlib.Path(inp_dir / file).stem
+                    fm.from_video_grouped(inp_src, group_size),
+                    out_dir / pathlib.Path(file).with_suffix(".mp"),
+                    source_id = pathlib.Path(file).stem
                 )
             elif mimetype.startswith("image"):
                 def _wrap(x):
                     yield x
 
                 self.save(
-                    _wrap(fm.from_image(inp_dir / file)),
-                    out_dir / pathlib.Path(inp_dir / file).with_suffix(".mp"),
-                    source_id = pathlib.Path(inp_dir / file).stem
+                    _wrap(fm.from_image(inp_src)),
+                    out_dir / pathlib.Path(file).with_suffix(".mp"),
+                    source_id = pathlib.Path(file).stem
                 )            
 
     def __str__(self) -> str:
