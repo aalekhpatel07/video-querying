@@ -1,5 +1,6 @@
-import heapq
 import typing as tp
+import os
+import mimetypes
 import pathlib
 import operator as op
 import numpy as np
@@ -8,6 +9,7 @@ import msgpack as mp
 
 from . import matrix as mx
 from . import descriptor as dsc
+from . import frames as fm
 
 
 def compute_raw_descriptors_given_image(
@@ -69,7 +71,7 @@ class CompactDescriptorExtractor:
         self,
         descriptor,
         factorizer: tp.Optional[mx.MatrixFactorizer] = None,
-        raw_top: tp.Optional[int] = 100
+        raw_top: tp.Optional[int] = 100,
     ):
         self.descriptor = descriptor
         self.factorizer = factorizer
@@ -136,5 +138,36 @@ class CompactDescriptorExtractor:
                 'descriptors': vectors
             }, f)
 
+    def save_from_directory(
+        self,
+        inp_dir: pathlib.Path,
+        out_dir: pathlib.Path,
+        **kwargs
+    ) -> None:
+
+        group_size = kwargs.get('group_size', 30)
+
+        for file in os.listdir(inp_dir):
+
+            if os.path.isdir(inp_dir / file):
+                self.save_from_directory(inp_dir / file, out_dir, **kwargs)
+            
+            mimetype = mimetypes.guess_type(file)[0]
+            if mimetype.startswith("video"):
+                self.save_from_video(
+                    fm.from_video_grouped(inp_dir / file, group_size),
+                    out_dir / pathlib.Path(inp_dir / file).with_suffix(".mp"),
+                    source_id = pathlib.Path(inp_dir / file).stem
+                )
+            elif mimetype.startswith("image"):
+                def _wrap(x):
+                    yield x
+
+                self.save(
+                    _wrap(fm.from_image(inp_dir / file)),
+                    out_dir / pathlib.Path(inp_dir / file).with_suffix(".mp"),
+                    source_id = pathlib.Path(inp_dir / file).stem
+                )            
+
     def __str__(self) -> str:
-        return f"<CompactDescriptorBuilder factorizer={self._factorizer}>"
+        return f"<CompactDescriptorExtractor factorizer={self.factorizer}>"

@@ -9,10 +9,7 @@ debugpy==1.4.1
 decorator==5.0.9
 defusedxml==0.7.1
 entrypoints==0.3
-faiss-cpu==1.7.1.post2
-faiss-gpu==1.7.1.post2
 ffmpeg==1.4
-fire==0.4.0
 ipykernel==6.0.3
 ipython==7.26.0
 ipython-genutils==0.2.0
@@ -66,7 +63,6 @@ six==1.16.0
 termcolor==1.1.0
 terminado==0.10.1
 testpath==0.5.0
-torch==1.9.0
 tornado==6.1
 traitlets==5.0.5
 typing-extensions==3.10.0.0

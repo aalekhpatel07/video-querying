@@ -57,11 +57,20 @@ class CompactDescriptorComparator:
     
         for source_id, stored_descriptors in load_database(self.database_root):
             # Let's go for parallelizing search within each file.
-            with mlp.Pool(processes=os.cpu_count()) as pool:
-                matches = pool.map(
-                    functools.partial(self.compare_fn, descriptor),
-                    stored_descriptors
-                )
+            # With multiprocessing...
+
+            # with mlp.Pool(processes=os.cpu_count()) as pool:
+            #     matches = pool.map(
+            #         functools.partial(self.compare_fn, descriptor),
+            #         stored_descriptors
+            #     )
+            
+            # Without multiprocessing...
+            # with mlp.Pool(processes=os.cpu_count()) as pool:
+            matches = list(map(
+                functools.partial(self.compare_fn, descriptor),
+                stored_descriptors
+            ))
             
             score = self.order_fn(matches)
             heapq.heappush(heap, (score, source_id))
