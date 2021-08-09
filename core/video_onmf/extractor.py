@@ -14,9 +14,7 @@ from . import frames as fm
 
 
 def compute_raw_descriptors_given_image(
-    img: np.ndarray,
-    descriptor,
-    **kwargs
+    img: np.ndarray, descriptor, **kwargs
 ) -> tp.Optional[np.ndarray]:
     """Compute the given descriptors in a given image.
 
@@ -35,11 +33,7 @@ def compute_raw_descriptors_given_image(
     if des is None or not len(des):
         return None
 
-    clean = sorted(
-        zip(kps, des),
-        key=lambda item: item[0].response,
-        reverse=True
-    )[:top]
+    clean = sorted(zip(kps, des), key=lambda item: item[0].response, reverse=True)[:top]
 
     clean = np.array(list(map(op.itemgetter(1), clean)), dtype=np.float32)
     clean /= np.linalg.norm(clean, axis=0)
@@ -80,9 +74,7 @@ class CompactDescriptorExtractor:
         self.factorizer = factorizer
         if factorizer is None:
             self.factorizer = mx.OrthogonalNonnegativeMatrixFactorizer(
-                rank=10,
-                rho=.01,
-                maxiter=100
+                rank=10, rho=0.01, maxiter=100
             )
         self.raw_top = raw_top
 
@@ -92,11 +84,7 @@ class CompactDescriptorExtractor:
         source_id: tp.Optional[str] = None,
     ) -> tp.Generator[dsc.CompactDescriptorVector, None, None]:
         print(f"Extracting descriptors...")
-        matrix = compute_raw_descriptors(
-            frames,
-            self.descriptor,
-            raw_top=self.raw_top
-        )
+        matrix = compute_raw_descriptors(frames, self.descriptor, raw_top=self.raw_top)
         if matrix is not None:
             left, _ = self.factorizer.factor(matrix)
 
@@ -117,14 +105,9 @@ class CompactDescriptorExtractor:
         path: tp.Union[str, pathlib.Path],
         source_id: tp.Optional[str] = None,
     ) -> None:
-        vectors = [
-            vector.encode() for vector in self.extract(frames, source_id)
-        ]
+        vectors = [vector.encode() for vector in self.extract(frames, source_id)]
         with open(path, "wb") as f:
-            mp.pack({
-                'source_id': source_id,
-                'descriptors': vectors
-            }, f)
+            mp.pack({"source_id": source_id, "descriptors": vectors}, f)
 
     def save_from_video(
         self,
@@ -137,40 +120,36 @@ class CompactDescriptorExtractor:
             vector.encode() for vector in self.extract_from_video(frames, source_id)
         ]
         with open(path, "wb") as f:
-            mp.pack({
-                'source_id': source_id,
-                'descriptors': vectors
-            }, f)
+            mp.pack({"source_id": source_id, "descriptors": vectors}, f)
 
     def save_from_directory(
-        self,
-        inp_dir: pathlib.Path,
-        out_dir: pathlib.Path,
-        **kwargs
+        self, inp_dir: pathlib.Path, out_dir: pathlib.Path, **kwargs
     ) -> None:
 
-        group_size = kwargs.get('group_size', 30)
+        group_size = kwargs.get("group_size", 30)
 
         for file in os.listdir(inp_dir):
             inp_src = inp_dir / file
             if os.path.isdir(inp_src):
                 self.save_from_directory(inp_src, out_dir, **kwargs)
-            
+
             mimetype = mimetypes.guess_type(inp_src)[0]
             if mimetype.startswith("video"):
                 self.save_from_video(
                     fm.from_video_grouped(inp_src, group_size),
                     out_dir / pathlib.Path(file).with_suffix(".mp"),
-                    source_id=pathlib.Path(file).stem
+                    source_id=pathlib.Path(file).stem,
                 )
             elif mimetype.startswith("image"):
+
                 def _wrap(x):
                     yield x
+
                 self.save(
                     _wrap(fm.from_image(inp_src)),
                     out_dir / pathlib.Path(file).with_suffix(".mp"),
-                    source_id=pathlib.Path(file).stem
-                )            
+                    source_id=pathlib.Path(file).stem,
+                )
 
     def __str__(self) -> str:
         return f"<CompactDescriptorExtractor factorizer={self.factorizer}>"

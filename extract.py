@@ -26,7 +26,7 @@ def create_parser():
 
         If the input is a directory, then the compact descriptors for all the media files
         in the directory will be extracted and stored in [out].
-        """
+        """,
     )
     parser.add_argument(
         "output",
@@ -42,7 +42,7 @@ def create_parser():
 
         If the input is a directory, then the compact descriptors for all the media files
         in the directory will be extracted and stored in [out].
-        """
+        """,
     )
 
     parser.add_argument(
@@ -57,7 +57,7 @@ def create_parser():
         The default value is 30. As with other stuff, this is subject to experimentation.
 
         This is irrelevant when extracting compact descriptor from images.
-        """
+        """,
     )
 
     parser.add_argument(
@@ -73,13 +73,13 @@ def create_parser():
         the higher the compute time.
 
         The paper recommends a value of at least 30.
-        """
+        """,
     )
 
     parser.add_argument(
         "--rho",
         type=float,
-        default=.01,
+        default=0.01,
         help="""
         Some fancy hyperparameter described in the Projected Proximal-point
         Alternating Least Squares algorithm in the paper.
@@ -87,7 +87,7 @@ def create_parser():
         To be honest, I have no idea which value is the best, so I just
         assume the smaller the value the smaller the step in the direction of 
         a better Orthogonal Non-negative Matrix Factorization of the source matrix.
-        """
+        """,
     )
 
     parser.add_argument(
@@ -98,7 +98,7 @@ def create_parser():
         The maximum number of iterations to perform in order to improve the factorization.
 
         Again, no idea which value is the best. This is subject to experimentation.
-        """
+        """,
     )
 
     parser.add_argument(
@@ -113,7 +113,7 @@ def create_parser():
         or BRISK can be used, assuming a corresponding MatrixFactorizer exists.
 
         For now, we only have SIFT implemented.
-        """
+        """,
     )
 
     parser.add_argument(
@@ -127,7 +127,7 @@ def create_parser():
 
         The larger the number of descriptors kept, the higher the compute time for factorization.
         We can set a default of 200 but it is subject to experimentation.
-        """
+        """,
     )
 
     return parser
@@ -136,29 +136,25 @@ def create_parser():
 def clean_io(inp_path: pathlib.Path, out_path: pathlib.Path):
 
     if os.path.isdir(inp_path) and os.path.isdir(out_path):
-        return 'directory', inp_path, out_path
+        return "directory", inp_path, out_path
 
     mimetype = mimetypes.guess_type(inp_path)[0]
     if mimetype.startswith("video") and not mimetype == "video/gif":
-        return 'video', inp_path, out_path.with_suffix(".mp")
+        return "video", inp_path, out_path.with_suffix(".mp")
     elif mimetype.startswith("image"):
-        return 'image', inp_path, out_path.with_suffix(".mp")
+        return "image", inp_path, out_path.with_suffix(".mp")
     return None, inp_path, out_path.with_suffix(".mp")
 
 
 def setup(rank, rho, iterations, descriptor_type, keep_best):
 
     factorizer = mx.OrthogonalNonnegativeMatrixFactorizer(
-        rank=rank,
-        rho=rho,
-        maxiter=iterations
+        rank=rank, rho=rho, maxiter=iterations
     )
 
     descriptor_ = dsc.NativeDescriptor(descriptor_type).descriptor
     extractor = ext.CompactDescriptorExtractor(
-        descriptor=descriptor_,
-        factorizer=factorizer,
-        raw_top=keep_best
+        descriptor=descriptor_, factorizer=factorizer, raw_top=keep_best
     )
 
     return extractor
@@ -170,39 +166,27 @@ def main():
     if mime is None:
         print("Invalid input")
         return
-    
+
     extractor = setup(
         rank=args.rank,
         rho=args.rho,
         iterations=args.maxiter,
         descriptor_type=args.descriptor_type,
-        keep_best=args.keep_best
+        keep_best=args.keep_best,
     )
 
-    if mime == 'video':
+    if mime == "video":
         grouped_stream = fm.from_video_grouped(in_path, args.group_size)
-        extractor.save_from_video(
-            grouped_stream,
-            out_path,
-            source_id=out_path.stem
-        )
-    elif mime == 'image':
+        extractor.save_from_video(grouped_stream, out_path, source_id=out_path.stem)
+    elif mime == "image":
 
         def _wrap(x):
             yield x
 
         img = fm.from_image(in_path)
-        extractor.save(
-            _wrap(img),
-            out_path,
-            source_id=out_path.stem
-        )
+        extractor.save(_wrap(img), out_path, source_id=out_path.stem)
     else:
-        extractor.save_from_directory(
-            in_path,
-            out_path,
-            group_size=args.group_size
-        )
+        extractor.save_from_directory(in_path, out_path, group_size=args.group_size)
 
 
 if __name__ == "__main__":

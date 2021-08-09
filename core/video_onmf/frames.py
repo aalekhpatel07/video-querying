@@ -10,12 +10,11 @@ import cv2 as cv
 
 class VideoUnReadable(Exception):
     """Indicates that a video file could not be read by cv2."""
+
     pass
 
 
-def probe(
-    video: cv.VideoCapture
-) -> tp.Dict[str, tp.Union[int, float, bool]]:
+def probe(video: cv.VideoCapture) -> tp.Dict[str, tp.Union[int, float, bool]]:
     """
 
     Args:
@@ -39,8 +38,7 @@ def probe(
 
 
 def from_video(
-    video_path: tp.Union[pathlib.Path, str],
-    **kwargs
+    video_path: tp.Union[pathlib.Path, str], **kwargs
 ) -> tp.Generator[np.ndarray, None, None]:
     """Generate a stream of frames from video.
 
@@ -54,9 +52,9 @@ def from_video(
     cap = cv.VideoCapture(str(video_path))
     metadata = probe(cap)
 
-    start = kwargs.get('start', 0)
-    end = kwargs.get('end', metadata['total_frames'] + 1)
-    step = kwargs.get('step', 1)
+    start = kwargs.get("start", 0)
+    end = kwargs.get("end", metadata["total_frames"] + 1)
+    step = kwargs.get("step", 1)
 
     indices_to_select = (x for x in range(start, end, step))
 
@@ -75,28 +73,27 @@ def from_video(
             counter += 1
 
 
-def from_image(
-    image_path: tp.Union[pathlib.Path, str]
-) -> tp.Optional[np.ndarray]:
+def from_image(image_path: tp.Union[pathlib.Path, str]) -> tp.Optional[np.ndarray]:
     return cv.imread(str(image_path))
 
 
 def _grouped_generator(
-    stream: tp.Generator[tp.Any, None, None],
-    group_size: int
+    stream: tp.Generator[tp.Any, None, None], group_size: int
 ) -> tp.Generator[tp.Generator[np.ndarray, None, None], None, None]:
-    yield from itertools.groupby(stream, key=lambda x, c=itertools.count(): math.floor(next(c) / group_size))
+    yield from itertools.groupby(
+        stream, key=lambda x, c=itertools.count(): math.floor(next(c) / group_size)
+    )
 
 
 def from_video_grouped(
-    video_path: tp.Union[pathlib.Path, str],
-    group_size: int
+    video_path: tp.Union[pathlib.Path, str], group_size: int
 ) -> tp.Generator[tp.Generator[np.ndarray, None, None], None, None]:
-    yield from map(itemgetter(1), _grouped_generator(from_video(video_path), group_size))
+    yield from map(
+        itemgetter(1), _grouped_generator(from_video(video_path), group_size)
+    )
 
 
 def from_stream_grouped(
-    stream: tp.Generator[np.ndarray, None, None],
-    group_size: int
+    stream: tp.Generator[np.ndarray, None, None], group_size: int
 ) -> tp.Generator[tp.Generator[np.ndarray, None, None], None, None]:
     yield from map(itemgetter(1), _grouped_generator(stream, group_size))

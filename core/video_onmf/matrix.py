@@ -7,19 +7,13 @@ from typing import (
 
 
 class MatrixFactorizer(abc.ABC):
-
     @abc.abstractmethod
-    def factor(
-        self,
-        matrix: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def factor(self, matrix: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         pass
 
 
 class OrthogonalNonnegativeMatrixFactorizer(MatrixFactorizer):
-    """A Solver for ONMF.
-
-    """
+    """A Solver for ONMF."""
 
     def __init__(self, rank: int, rho: float, maxiter: int):
         """Construct a Solver for ONMF.
