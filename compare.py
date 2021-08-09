@@ -2,10 +2,10 @@ import argparse
 import pathlib
 
 # from video_onmf import frames as fm
-from video_onmf import extractor as ext
-from video_onmf import matrix as mx
-from video_onmf import descriptor as dsc
-from video_onmf import comparator
+from core.video_onmf import extractor as ext
+from core.video_onmf import matrix as mx
+from core.video_onmf import descriptor as dsc
+from core.video_onmf import comparator
 
 
 def create_parser():

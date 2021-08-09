@@ -3,10 +3,10 @@ import pathlib
 import os
 import mimetypes
 
-from video_onmf import frames as fm
-from video_onmf import extractor as ext
-from video_onmf import matrix as mx
-from video_onmf import descriptor as dsc
+from core.video_onmf import frames as fm
+from core.video_onmf import extractor as ext
+from core.video_onmf import matrix as mx
+from core.video_onmf import descriptor as dsc
 
 
 def create_parser():
