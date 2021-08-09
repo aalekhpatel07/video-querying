@@ -1,4 +1,5 @@
 import typing as tp
+import pathlib
 import numpy as np
 import cv2 as cv
 import msgpack as mp
@@ -112,3 +113,5 @@ class CompactDescriptorVector(np.ndarray):
             vector=mnp.unpackb(obj, object_hook=mnp.decode),
             source_id=None
         )
+
+

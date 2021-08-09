@@ -1,6 +1,7 @@
+import heapq
 import typing as tp
 import pathlib
-
+import operator as op
 import numpy as np
 import cv2 as cv
 import msgpack as mp
@@ -11,7 +12,8 @@ from . import descriptor as dsc
 
 def compute_raw_descriptors_given_image(
     img: np.ndarray,
-    descriptor
+    descriptor,
+    **kwargs
 ) -> tp.Optional[np.ndarray]:
     """Compute the given descriptors in a given image.
 
@@ -22,15 +24,25 @@ def compute_raw_descriptors_given_image(
     Returns:
         The extracted descriptors.
     """
+    top = kwargs.get("raw_top", 100)
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-    _, des = descriptor.detectAndCompute(gray, None)
+    kps, des = descriptor.detectAndCompute(gray, None)
+
     if des is None or not len(des):
         return None
-    des /= np.linalg.norm(des, axis=0)
-    return des
+
+    clean = sorted(
+        zip(kps, des),
+        key=lambda item: item[0].response,
+        reverse=True
+    )[:top]
+
+    clean = np.array(list(map(op.itemgetter(1), clean)), dtype=np.float32)
+    clean /= np.linalg.norm(clean, axis=0)
+    return clean
 
 
-def compute_raw_descriptors(frames, descriptor) -> np.ndarray:
+def compute_raw_descriptors(frames, descriptor, **kwargs) -> np.ndarray:
     """Compute and stack the descriptors from all the frames within the group.
 
     Args:
@@ -43,7 +55,7 @@ def compute_raw_descriptors(frames, descriptor) -> np.ndarray:
 
     descriptors = []
     for frame in frames:
-        computed = compute_raw_descriptors_given_image(frame, descriptor)
+        computed = compute_raw_descriptors_given_image(frame, descriptor, **kwargs)
         if computed is None:
             continue
         descriptors.append(computed.T)
@@ -57,6 +69,7 @@ class CompactDescriptorExtractor:
         self,
         descriptor,
         factorizer: tp.Optional[mx.MatrixFactorizer] = None,
+        raw_top: tp.Optional[int] = 100
     ):
         self.descriptor = descriptor
         self.factorizer = factorizer
@@ -66,15 +79,19 @@ class CompactDescriptorExtractor:
                 rho=.01,
                 maxiter=100
             )
+        self.raw_top = raw_top
 
     def extract(
         self,
         frames: tp.Generator[np.ndarray, None, None],
-        source_id: tp.Optional[str] = None
+        source_id: tp.Optional[str] = None,
     ) -> tp.Generator[dsc.CompactDescriptorVector, None, None]:
         print(f"Extracting descriptors...")
-
-        matrix = compute_raw_descriptors(frames, self.descriptor)
+        matrix = compute_raw_descriptors(
+            frames,
+            self.descriptor,
+            raw_top=self.raw_top
+        )
         left, _ = self.factorizer.factor(matrix)
 
         for cols in left.T:
@@ -83,7 +100,7 @@ class CompactDescriptorExtractor:
     def extract_from_video(
         self,
         grouped_frames: tp.Generator[tp.Generator[np.ndarray, None, None], None, None],
-        source_id: tp.Optional[str] = None
+        source_id: tp.Optional[str] = None,
     ) -> tp.Generator[dsc.CompactDescriptorVector, None, None]:
         for gop in grouped_frames:
             yield from self.extract(gop, source_id)
@@ -92,7 +109,7 @@ class CompactDescriptorExtractor:
         self,
         frames: tp.Generator[np.ndarray, None, None],
         path: str,
-        source_id: tp.Optional[str] = None
+        source_id: tp.Optional[str] = None,
     ) -> None:
         vectors = [
             vector.encode() for vector in self.extract(frames, source_id)
@@ -107,7 +124,7 @@ class CompactDescriptorExtractor:
         self,
         frames: tp.Generator[tp.Generator[np.ndarray, None, None], None, None],
         path: tp.Union[pathlib.Path, str],
-        source_id: tp.Optional[str] = None
+        source_id: tp.Optional[str] = None,
     ) -> None:
         print(f"Extracting descriptors to {path}...")
         vectors = [
@@ -118,18 +135,6 @@ class CompactDescriptorExtractor:
                 'source_id': source_id,
                 'descriptors': vectors
             }, f)
-
-    def load(
-        self,
-        path: tp.Union[pathlib.Path, str],
-    ) -> tp.Tuple[str, tp.Generator[dsc.CompactDescriptorVector, None, None]]:
-        with open(path, 'rb') as f:
-            obj = mp.unpack(f)
-            descriptors = (
-                dsc.CompactDescriptorVector.decode(x) for x in obj['descriptors']
-            )
-        return obj['source_id'], descriptors
-
 
     def __str__(self) -> str:
         return f"<CompactDescriptorBuilder factorizer={self._factorizer}>"
