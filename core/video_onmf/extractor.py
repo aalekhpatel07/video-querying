@@ -26,7 +26,8 @@ def compute_raw_descriptors_given_image(
         The extracted descriptors.
     """
     top = kwargs.get("raw_top", 100)
-    if img is None:
+    noise_threshold = kwargs.get("dark_pixels_count", 30)
+    if img is None or np.amax(img) < noise_threshold or np.amin(img) > 255 - noise_threshold:
         return None
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
     kps, des = descriptor.detectAndCompute(gray, None)
@@ -134,6 +135,8 @@ class CompactDescriptorExtractor:
                 self.save_from_directory(inp_src, out_dir, **kwargs)
 
             mimetype = mimetypes.guess_type(inp_src)[0]
+            if mimetype is None:
+                continue
             if mimetype.startswith("video"):
                 self.save_from_video(
                     fm.from_video_grouped(inp_src, group_size),

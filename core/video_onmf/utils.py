@@ -59,7 +59,9 @@ def isv(arr: np.ndarray, output_path: tp.Union[str, pathlib.Path], **kwargs):
         output_path: The path to the output image.
         **kwargs: Any extra keyword arguments that are passed to `plt.imsave`.
     """
-    path = Path(output_path)
+    path = pathlib.Path(output_path)
+    if arr is None:
+        return
     color_corrected = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
     plt.imsave(path, color_corrected, format=kwargs.get("format", "jpeg"), **kwargs)
     return
@@ -67,20 +69,38 @@ def isv(arr: np.ndarray, output_path: tp.Union[str, pathlib.Path], **kwargs):
 
 def vsh(
     frame_stream: tp.Iterable[np.ndarray],
-    transform: tp.Optional[tp.Callable[[np.ndarray], np.ndarray]] = None,
+    transform_hook: tp.Optional[tp.Callable[[np.ndarray], np.ndarray]] = None,
     description: tp.Optional[str] = "1",
     width: tp.Optional[int] = None,
     height: tp.Optional[int] = None,
     interpolation: tp.Optional[tp.Any] = cv2.INTER_AREA,
 ):
-    if transform is None:
-        transform = lambda x: x
+    if transform_hook is None:
+        transform_hook = lambda x: x
 
-    for frame in transform(frame_stream):
+    for frame in transform_hook(frame_stream):
         if width is not None and height is not None:
             frame = cv2.resize(frame, (width, height), interpolation=interpolation)
         cv2.imshow(description, frame)
         time.sleep(0.01)
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
+    return
+
+
+def vsv(
+    frame_stream: tp.Iterable[np.ndarray],
+    fps: int,
+    width: int,
+    height: int,
+    path: pathlib.Path,
+):
+    writer = cv2.VideoWriter(str(path),
+                             cv2.VideoWriter_fourcc('m', 'p', '4', 'v'),
+                             fps,
+                             (width, height)
+                             )
+
+    for frame in frame_stream:
+        writer.write(frame)
     return

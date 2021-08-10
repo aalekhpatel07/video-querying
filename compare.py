@@ -194,7 +194,9 @@ def main():
             )
 
     if results is not None:
-        print(list(results))
+        for file, score in results:
+            print(score, file)
+        # print(list(results))
 
 
 if __name__ == "__main__":
