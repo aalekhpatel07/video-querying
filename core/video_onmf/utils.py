@@ -12,6 +12,7 @@ import random
 import cv2
 import numpy as np
 from matplotlib import pyplot as plt
+import tqdm
 
 
 def ird(img_path: pathlib.Path) -> np.ndarray:
@@ -91,16 +92,37 @@ def vsh(
 def vsv(
     frame_stream: tp.Iterable[np.ndarray],
     fps: int,
-    width: int,
-    height: int,
     path: pathlib.Path,
+    width: tp.Optional[int] = None,
+    height: tp.Optional[int] = None,
 ):
+    stream_it = iter(frame_stream)
+
+    try:
+        first = next(stream_it)
+    except StopIteration as err:
+        print(err)
+        return
+
+    if height is None or width is None:
+        height, width, *_ = first.shape
+
     writer = cv2.VideoWriter(str(path),
                              cv2.VideoWriter_fourcc('m', 'p', '4', 'v'),
                              fps,
                              (width, height)
                              )
+    writer.write(first)
 
-    for frame in frame_stream:
+    for frame in tqdm.tqdm(stream_it, desc="Saving frame"):
         writer.write(frame)
+
+    # del temp
+    # while True:
+    #     try:
+    #         current = next(stream_it)
+    #         writer.write(current)
+    #     except StopIteration:
+    #         break
+
     return

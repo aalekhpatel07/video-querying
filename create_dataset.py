@@ -13,13 +13,14 @@ from pprint import pprint as pp
 import numpy as np
 import uuid
 import msgpack as mp
+import tqdm
 
+import cv2 as cv
 
 from core.video_onmf import frames as fm
 from core.video_onmf import utils
 from core.perturb import image
-from core.perturb import video
-import cv2 as cv
+# from core.perturb import video
 
 
 class Action:
@@ -57,19 +58,19 @@ class Config:
 
 
     def __init__(self,
-                 filter_kernel: np.ndarray = np.array([1]),
                  pillarbox_target_ratio: float = 4/3,
                  letterbox_target_ratio: float = 16/9,
                  windowbox_target_ratio: float = 4/3,
                  rotation_angle: float = math.pi / 2,
                  remove_rows: int = 0,
                  remove_cols: int = 0,
-                 bottom_right_crop_coord: tp.Tuple[tp.Optional[int], tp.Optional[int]] = (None, None),
                  scale_ratio: float = 1,
                  scale_x: float = 1,
                  scale_y: float = 1,
                  target_height: int = 1000,
                  target_width: int = 1000,
+                 filter_kernel: np.ndarray = np.array([1]),
+                 fill: str = "blur",
                  **kwargs
                  ):
         self.filter_kernel = filter_kernel
@@ -84,6 +85,7 @@ class Config:
         self.scale_y = scale_y
         self.target_height = target_height
         self.target_width = target_width
+        self.fill = fill
 
         self.__dict__.update(kwargs)
 
@@ -99,14 +101,19 @@ class Config:
             return random.random() * 2
         if attribute.endswith('_angle'):
             return random.random() * 2 * math.pi
-        if attribute == 'filter_kernel':
-            return np.array([1], dtype=np.uint8)
+        if attribute.endswith('filter_kernel'):
+            gauss = cv.getGaussianKernel(random.randint(1, 100), random.randint(1, 20))
+            kernel = gauss * gauss.transpose(1, 0)
+            return kernel
         if attribute.startswith('remove_'):
             return random.randint(0, 50)
         if attribute.startswith('scale_'):
             return random.random() * 2
         if attribute == "target_width" or attribute == "target_height":
             return random.randint(0, 1000)
+        if attribute == "fill":
+            options = ["white", "dark", "blur"]
+            return random.choice(options)
         return None
 
     def get_random(self, **kwargs):
@@ -115,9 +122,10 @@ class Config:
         all_attributes = self.to_dict().keys()
 
         updated = {}
-        for k in all_attributes - set(fixed_values.keys()):
+        to_change = all_attributes - set(fixed_values.keys())
+        for k in to_change:
             updated[k] = self._generate_attr(k)
-        return Config(**updated)
+        return Config(**fixed_values, **updated)
 
     def to_dict(self):
         all_attributes = {}
@@ -147,8 +155,7 @@ def get_actions(mime_type: str) -> tp.Dict[str, tp.Callable]:
     return actions
 
 
-_image_all_actions = get_actions("image")
-# _video_all_actions = get_actions("video")
+all_actions = get_actions("image")
 
 
 def chain_actions(actions: tp.Iterable[Action], *args, **kwargs):
@@ -169,15 +176,12 @@ def perturb_video(
 
     if actions is None:
         actions = random.choices(
-            list(_image_all_actions.items()),
-            k=random.randint(1, 2)
+            list(all_actions.items()),
+            k=random.randint(1, 4)
         )
     clean_actions = [
         Action(act, *args, func=func, **kwargs) for (act, func) in actions
     ]
-    for x in clean_actions:
-        print(x)
-    print("----------")
     chained = chain_actions(clean_actions, *args, **kwargs)
     return (chained(frame) for frame in frame_stream), clean_actions
 
@@ -190,7 +194,7 @@ def perturb_image(
 ):
     if actions is None:
         actions = random.choices(
-            list(_image_all_actions.items()),
+            list(all_actions.items()),
             k=random.randint(1, 6)
         )
 
@@ -243,13 +247,12 @@ def read_report(path: pathlib.Path):
 
 def main():
     res = read_report(pathlib.Path("./data/output/report.mp"))
+    print(res["timestamp"])
     for x in res["files"]:
         print(x["filename"])
         for act in x["actions"]:
             print(act)
         print("--------")
-        # print(x)
-    # print(res["files"])
     return res
 
 def do_your_thing():
@@ -257,16 +260,17 @@ def do_your_thing():
     source, dest = args.source, args.output_dir
 
     number_of_alterations_per_image: int = 5
-    number_of_alterations_per_video: int = 3
+    number_of_alterations_per_video: int = 1
     c = Config()
 
     outer = {
         "source": str(source),
-        "destination": str(dest)
+        "destination": str(dest),
+        "timestamp": time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
     }
     report = []
 
-    for mime, path in media_files(source):
+    for mime, path in tqdm.tqdm(media_files(source), desc="Source"):
         # transformed = None
         # updated = None
         report_item = {
@@ -289,14 +293,18 @@ def do_your_thing():
                 report.append(deepcopy(report_item))
 
         elif mime == "video":
-            vid = fm.from_video(path)
             cap = cv.VideoCapture(str(path))
             metadata = fm.probe(cap)
-            for _ in range(number_of_alterations_per_video):
+            for _ in tqdm.tqdm(range(number_of_alterations_per_video), desc="perturbation"):
                 current_path = (dest / str(uuid.uuid4())).with_suffix(path.suffix)
 
-                config = c.get_random()
-                updated, actions = perturb_video(vid, **config.to_dict())
+                config = c.get_random(fill="blur", height_to_add=100, width_to_add=200)
+                vid = fm.from_video(path)
+                updated, actions = perturb_video(
+                    vid,
+                    actions=[("windowbox", all_actions["windowbox"])],
+                    **config.to_dict()
+                )
 
                 report_item["filename"] = current_path.stem + current_path.suffix
                 report_item["actions"] = list(map(str, actions))
@@ -304,22 +312,9 @@ def do_your_thing():
                 utils.vsv(updated,
                           path=current_path,
                           fps=metadata["fps"],
-                          width=metadata["width"],
-                          height=metadata["height"],
                           )
                 report.append(deepcopy(report_item))
 
-                # utils.isv(updated, current_path)
-                # report.append(deepcopy(report_item))
-
-            pass
-            # chained = chain_actions(video_actions, **config)
-            # vid = fm.from_video(path)
-            # config = c.get_random()
-            # updated = perturb_video(vid, **config.to_dict())
-
-            # transformed = perturb_video(path, **args.__dict__)
-            # break
     outer["files"] = report
 
     with open(dest / "report.mp", 'wb') as f:
