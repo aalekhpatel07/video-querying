@@ -1,0 +1,29 @@
+perturbation:
+  image:
+    pillarbox:
+      target_ratio: 1.33333333
+      fill: "white"
+    letterbox:
+      target_ratio: 1.77777777
+      fill: "black"
+    windowbox:
+      height_to_add: 0
+      width_to_add: 0
+      fill: "blur"
+    color_filter:
+      kernel: [1]
+    rotate:
+      angle: 0
+    crop:
+      rows: 0
+      columns: 0
+    scale:
+      x: 1.0
+      y: 1.0
+    scale_uniform:
+      ratio: 1.0
+    scale_to_fit:
+      height:
+      width:
+  video:
+
