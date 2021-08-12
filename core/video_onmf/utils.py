@@ -27,7 +27,7 @@ def ird(img_path: pathlib.Path) -> np.ndarray:
     return cv2.imread(str(img_path))
 
 
-def ish(*imgs: tp.List[np.ndarray]):
+def ish(*imgs: tp.Union[np.ndarray, tp.Iterable[np.ndarray]]):
     """Show images.
 
     Show any number of images

@@ -1,8 +1,8 @@
 perturbation:
   image:
     pillarbox:
-      target_ratio: 1.33333333
-      fill: "white"
+      target_ratio: 2.0
+      fill: "blur"
     letterbox:
       target_ratio: 1.77777777
       fill: "black"
