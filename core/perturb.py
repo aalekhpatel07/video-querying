@@ -33,6 +33,14 @@ def color_filter(img, kernel: np.ndarray) -> np.ndarray:
     return cv.filter2D(src=img, ddepth=-1, kernel=kernel)
 
 
+class Kernel:
+    SEPIA = np.array([
+        [0.272, 0.534, 0.131],
+        [0.349, 0.686, 0.168],
+        [0.393, 0.769, 0.189]
+    ])
+
+
 class NeatImage:
     def __init__(self, im: np.ndarray):
         self.im = im
@@ -45,6 +53,9 @@ class NeatImage:
         return utils.ish(self.im)
 
     def save(self, filepath: tp.Union[str, pathlib.Path]):
+        if self.im is None:
+            print(f"Could not save image at {filepath} because it is None.")
+            return
         return utils.isv(self.im, pathlib.Path(filepath))
 
     def blur(self, ksize: int, sigma: float):
@@ -60,6 +71,10 @@ class NeatImage:
 
     def flip_vertical(self):
         self.im = cv.flip(self.im, 0)
+        return self
+
+    def sepia(self):
+        self.im = color_filter(self.im, kernel=Kernel.SEPIA)
         return self
 
     def pillarbox(
@@ -204,6 +219,8 @@ class NeatImage:
     def process(cls, filepath: pathlib.Path, config, actions) -> "NeatImage":
 
         neat = NeatImage.read(filepath)
+        if neat is None or neat.im is None:
+            return NeatImage(None)
         for action in actions:
             func = getattr(neat, action)
             kwargs = {}
