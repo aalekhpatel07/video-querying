@@ -4,6 +4,7 @@ import mimetypes
 import functools
 import itertools
 import pprint
+import random
 import typing as tp
 import pathlib
 
@@ -249,7 +250,7 @@ class ProcessableVideo:
         for action in self.extended:
             setattr(self, action, _extend(getattr(NeatImage, action)))
 
-    def to_ndarray_generator(self):
+    def to_ndarray_generator(self) -> tp.Iterable[np.ndarray]:
         return map(lambda x: x.im, self.neat_frame_stream)
 
     @classmethod
@@ -278,12 +279,45 @@ class ProcessableVideo:
             return NeatImage(im=shot)
         return self
 
-    def adjust_speed(self, scale):
+    def adjust_speed(self, scale: float):
         self.metadata["fps"] *= scale
         return self
 
-    def adjust_duration(self, scale):
+    def adjust_duration(self, scale: float):
         self.metadata["fps"] /= scale
+        return self
+
+    def adjust_frames(self, fps):
+        if fps > self.metadata["fps"]:
+            return self
+
+        duration = self.metadata["total_frames"] / self.metadata["fps"]
+
+        frames_to_keep = int(duration * fps)
+        indices = np.round(
+            np.linspace(0, self.metadata["total_frames"] - 1, frames_to_keep)
+        ).astype(int)
+        indices = set(indices)
+
+        updated_stream = (
+            NeatImage(frame)
+            for (idx, frame) in enumerate(self.to_ndarray_generator())
+            if idx in indices
+        )
+        self.neat_frame_stream = updated_stream
+        self.metadata["total_frames"] = len(indices)
+        self.metadata["fps"] = fps
+        return self
+
+    def rearrange_group(self, group_size: int):
+
+        gops = fm.from_stream_grouped(self.to_ndarray_generator(), group_size)
+        gops = [list(x) for x in gops]
+        random.shuffle(gops)
+
+        updated = (NeatImage(frame) for frame in itertools.chain.from_iterable(gops))
+        self.neat_frame_stream = updated
+        del gops
         return self
 
     def crop_duration(self, start: tp.Dict[str, tp.Any], end: tp.Dict[str, tp.Any]):
@@ -328,7 +362,6 @@ class ProcessableVideo:
                 neat = func(neat, **kwargs)
             else:
                 neat = func(**kwargs)
-
         return neat
 
 
@@ -389,14 +422,15 @@ def create_parser():
             help=attr.__doc__,
             default=False,
         )
-    # for stuff in :
-    #     print(stuff)
     return parser
 
 
 def _load_config(path: pathlib.Path):
-    with open(path, "r") as f:
-        config_ = yaml.load(f.read(), Loader=yaml.Loader)
+    try:
+        with open(path, "r") as f:
+            config_ = yaml.load(f.read(), Loader=yaml.Loader)
+    except TypeError:
+        return {}
     return config_
 
 
@@ -416,53 +450,8 @@ def parse_actions(**kwargs):
 
 
 def default_config():
-    big_str = """
-  image:
-    pillarbox:
-      target_ratio: 1.33333333
-      fill: "white"
-    letterbox:
-      target_ratio: 1.77777777
-      fill: "black"
-    windowbox:
-      height_to_add: 0
-      width_to_add: 0
-      fill: "blur"
-    color_filter:
-      kernel: [1]
-    rotate:
-      angle: 0
-    crop:
-      rows: 0
-      columns: 0
-    scale:
-      x: 1.0
-      y: 1.0
-    scale_uniform:
-      ratio: 1.0
-    scale_to_fit:
-      height:
-      width:
-    blur:
-      ksize: 20
-      sigma: 10
-  video:
-    screenshot:
-      frame: 100
-    adjust_speed:
-      scale: 1.0
-    adjust_duration:
-      scale: 1.0
-    crop_duration:
-      start:
-        hour: 0
-        minute: 0
-        second: 0.0
-      end:
-        hour: 0
-        minute: 0
-        second: 0.0
-    """
+    with open("./config.default.yaml", "r") as f:
+        big_str = f.read()
     return yaml.load(big_str, Loader=yaml.Loader)
 
 
@@ -491,11 +480,10 @@ def main():
     config_vid = config["video"] or {}
 
     config = dict(**config_img, **config_vid)
-
     config_passed = _load_config(args.config)
 
-    config.update(**(config_passed["image"] or {}))
-    config.update(**(config_passed["video"] or {}))
+    config.update(**(config_passed["image"] if "image" in config_passed else {}))
+    config.update(**(config_passed["video"] if "video" in config_passed else {}))
 
     actions = parse_actions(**args.__dict__)
 

@@ -78,8 +78,8 @@ def from_image(image_path: tp.Union[pathlib.Path, str]) -> tp.Optional[np.ndarra
 
 
 def _grouped_generator(
-    stream: tp.Generator[tp.Any, None, None], group_size: int
-) -> tp.Generator[tp.Generator[np.ndarray, None, None], None, None]:
+    stream: tp.Iterable[tp.Any], group_size: int
+) -> tp.Iterable[tp.Iterable[np.ndarray]]:
     yield from itertools.groupby(
         stream, key=lambda x, c=itertools.count(): math.floor(next(c) / group_size)
     )
@@ -87,13 +87,13 @@ def _grouped_generator(
 
 def from_video_grouped(
     video_path: tp.Union[pathlib.Path, str], group_size: int
-) -> tp.Generator[tp.Generator[np.ndarray, None, None], None, None]:
+) -> tp.Iterable[tp.Iterable[np.ndarray]]:
     yield from map(
         itemgetter(1), _grouped_generator(from_video(video_path), group_size)
     )
 
 
 def from_stream_grouped(
-    stream: tp.Generator[np.ndarray, None, None], group_size: int
-) -> tp.Generator[tp.Generator[np.ndarray, None, None], None, None]:
+    stream: tp.Iterable[np.ndarray], group_size: int
+) -> tp.Iterable[tp.Iterable[np.ndarray]]:
     yield from map(itemgetter(1), _grouped_generator(stream, group_size))
