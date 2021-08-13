@@ -31,14 +31,14 @@ video:
   adjust_speed:
     scale: 10.0
   adjust_duration:
-    scale: 2
+    scale: 4.0
   screenshot:
     frame: 100
   crop_duration:
     start:
       hour: 0
       minute: 0
-      second: 1.2
+      second: 2.0
     end:
       hour: 0
       minute: 0

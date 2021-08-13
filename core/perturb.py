@@ -16,9 +16,7 @@ from video_onmf import utils
 from video_onmf import frames as fm
 
 
-def _fill_effect(img,
-                 fill: tp.Optional[str] = 'blur'
-                 ):
+def _fill_effect(img, fill: tp.Optional[str] = "blur"):
     if fill == "blur":
         gauss = cv.getGaussianKernel(20, 10)
         kernel = gauss * gauss.transpose(1, 0)
@@ -30,14 +28,8 @@ def _fill_effect(img,
     return effect
 
 
-def color_filter(img,
-                 kernel: np.ndarray
-                 ) -> np.ndarray:
-    filtered = (cv.filter2D(src=img,
-                            ddepth=-1,
-                            kernel=kernel
-                            ),)
-    return filtered[0]
+def color_filter(img, kernel: np.ndarray) -> np.ndarray:
+    return cv.filter2D(src=img, ddepth=-1, kernel=kernel)
 
 
 class NeatImage:
@@ -70,9 +62,9 @@ class NeatImage:
         return self
 
     def pillarbox(
-            self,
-            target_ratio: float,
-            fill: str,
+        self,
+        target_ratio: float,
+        fill: str,
     ):
 
         height, width, *_ = self.im.shape
@@ -96,9 +88,9 @@ class NeatImage:
         return self
 
     def letterbox(
-            self,
-            target_ratio: tp.Optional[float] = None,
-            fill: tp.Optional[str] = None,
+        self,
+        target_ratio: tp.Optional[float] = None,
+        fill: tp.Optional[str] = None,
     ):
 
         height, width, *_ = self.im.shape
@@ -122,8 +114,8 @@ class NeatImage:
         return self
 
     def rotate(
-            self,
-            angle: tp.Optional[float] = None,
+        self,
+        angle: tp.Optional[float] = None,
     ):
 
         rotation_angle = angle * 180 / math.pi
@@ -136,12 +128,7 @@ class NeatImage:
         self.im = np.copy(result)
         return self
 
-    def windowbox(
-            self,
-            height_to_add: int,
-            width_to_add: int,
-            fill: str
-    ):
+    def windowbox(self, height_to_add: int, width_to_add: int, fill: str):
 
         height, width, *_ = self.im.shape
 
@@ -152,7 +139,9 @@ class NeatImage:
         cols_right = width_to_add - cols_left
 
         background = _fill_effect(self.im, fill)
-        background = NeatImage(background).scale_to_fit(height + height_to_add, width + width_to_add)
+        background = NeatImage(background).scale_to_fit(
+            height + height_to_add, width + width_to_add
+        )
 
         row_slice = slice(rows_top, height + height_to_add - rows_bottom)
         col_slice = slice(cols_left, width + width_to_add - cols_right)
@@ -162,11 +151,7 @@ class NeatImage:
         self.im = np.copy(background.im)
         return self
 
-    def crop(
-            self,
-            rows: int,
-            columns: int
-    ):
+    def crop(self, rows: int, columns: int):
 
         height, width, *_ = self.im.shape
 
@@ -185,8 +170,8 @@ class NeatImage:
         return self
 
     def scale_uniform(
-            self,
-            ratio: float,
+        self,
+        ratio: float,
     ):
         return self.scale(
             x=ratio,
@@ -194,9 +179,9 @@ class NeatImage:
         )
 
     def scale(
-            self,
-            x: float,
-            y: float,
+        self,
+        x: float,
+        y: float,
     ):
 
         height, width, *_ = self.im.shape
@@ -205,9 +190,9 @@ class NeatImage:
         return self
 
     def scale_to_fit(
-            self,
-            height: int,
-            width: int,
+        self,
+        height: int,
+        width: int,
     ):
 
         result = cv.resize(self.im, (width, height), interpolation=cv.INTER_LINEAR)
@@ -215,11 +200,7 @@ class NeatImage:
         return self
 
     @classmethod
-    def process(cls,
-                filepath: pathlib.Path,
-                config,
-                actions
-                ) -> 'NeatImage':
+    def process(cls, filepath: pathlib.Path, config, actions) -> "NeatImage":
 
         neat = NeatImage.read(filepath)
         for action in actions:
@@ -235,36 +216,35 @@ class NeatImage:
 def _extend(func):
     @functools.wraps(func)
     def blah(self, *args, **kwargs):
-        iterable = (
-            func(frame, *args, **kwargs).im for frame in self.neat_frame_stream
-        )
+        iterable = (func(frame, *args, **kwargs).im for frame in self.neat_frame_stream)
         return type(self)(iterable, metadata=self.metadata)
+
     return blah
 
 
 class ProcessableVideo:
 
     extended = {
-        'pillarbox',
-        'blur',
-        'letterbox',
-        'windowbox',
-        'scale',
-        'scale_to_fit',
-        'scale_uniform',
-        'crop',
-        'rotate',
-        'flip_horizontal',
-        'flip_vertical'
+        "pillarbox",
+        "blur",
+        "letterbox",
+        "windowbox",
+        "scale",
+        "scale_to_fit",
+        "scale_uniform",
+        "crop",
+        "rotate",
+        "flip_horizontal",
+        "flip_vertical",
     }
 
-    def __init__(self,
-                 frame_stream: tp.Iterable[np.ndarray],
-                 metadata: tp.Optional[tp.Dict] = None
-                 ):
+    def __init__(
+        self,
+        frame_stream: tp.Iterable[np.ndarray],
+        metadata: tp.Optional[tp.Dict] = None,
+    ):
         self.neat_frame_stream = map(NeatImage, frame_stream)
         self.metadata = metadata
-
 
         for action in self.extended:
             setattr(self, action, _extend(getattr(NeatImage, action)))
@@ -283,20 +263,16 @@ class ProcessableVideo:
     def save(self, filepath: tp.Union[str, pathlib.Path]):
         fps = self.metadata["fps"]
 
-        return utils.vsv(self.to_ndarray_generator(),
-                         fps,
-                         filepath,
-                         )
-
-    def screenshot(self, frame: int) -> tp.Optional[tp.Union[NeatImage, 'ProcessableVideo']]:
-        shot = next(
-            itertools.islice(
-                self.to_ndarray_generator(),
-                frame,
-                None
-            ),
-            None
+        return utils.vsv(
+            self.to_ndarray_generator(),
+            fps,
+            filepath,
         )
+
+    def screenshot(
+        self, frame: int
+    ) -> tp.Optional[tp.Union[NeatImage, "ProcessableVideo"]]:
+        shot = next(itertools.islice(self.to_ndarray_generator(), frame, None), None)
 
         if shot is not None:
             return NeatImage(im=shot)
@@ -310,10 +286,7 @@ class ProcessableVideo:
         self.metadata["fps"] /= scale
         return self
 
-    def crop_duration(self,
-                      start: tp.Dict[str, tp.Any],
-                      end: tp.Dict[str, tp.Any]
-                      ):
+    def crop_duration(self, start: tp.Dict[str, tp.Any], end: tp.Dict[str, tp.Any]):
         s_hour = int(start["hour"] or 0)
         s_minute = int(start["minute"] or 0)
         s_second = float(start["second"] or 0)
@@ -332,18 +305,18 @@ class ProcessableVideo:
         end_frame = min(self.metadata["total_frames"], end_frame)
 
         updated_stream = (
-            NeatImage(frame) for (idx, frame) in enumerate(self.to_ndarray_generator()) if start_frame <= idx <= end_frame
+            NeatImage(frame)
+            for (idx, frame) in enumerate(self.to_ndarray_generator())
+            if start_frame <= idx <= end_frame
         )
         self.neat_frame_stream = updated_stream
         self.metadata["total_frames"] = end_frame - start_frame + 1
         return self
 
     @classmethod
-    def process(cls,
-                filepath: pathlib.Path,
-                config,
-                actions
-                ) -> 'NeatImage':
+    def process(
+        cls, filepath: pathlib.Path, config, actions
+    ) -> tp.Union[NeatImage, "ProcessableVideo"]:
 
         neat = ProcessableVideo.read(filepath=filepath)
         for action in actions:
@@ -368,7 +341,7 @@ def create_parser():
         help="""
             Path to input image/video.
         """,
-        required=True
+        required=True,
     )
     parser.add_argument(
         "-o",
@@ -377,7 +350,7 @@ def create_parser():
         help="""
             Path to output image/video.
         """,
-        required=True
+        required=True,
     )
 
     parser.add_argument(
@@ -389,22 +362,17 @@ def create_parser():
             then default config is used. Otherwise, the
             default config is overridden based on the
             provided properties.
-        """
+        """,
     )
 
-    ignore = {
-        'show',
-        'read',
-        'save',
-        'process',
-        'to_ndarray_generator',
-        'extended'
-    }
+    ignore = {"show", "read", "save", "process", "to_ndarray_generator", "extended"}
 
     neat_image_dir = set(dir(NeatImage))
     processable_video_dir = set(dir(ProcessableVideo))
 
-    chained = itertools.chain(neat_image_dir, processable_video_dir - ProcessableVideo.extended)
+    chained = itertools.chain(
+        neat_image_dir, processable_video_dir - ProcessableVideo.extended
+    )
 
     def filter_fn(x):
         return not x.startswith("_") and x.replace("-", "_") not in ignore
@@ -414,12 +382,12 @@ def create_parser():
             attr = getattr(NeatImage, stuff)
         except AttributeError:
             attr = getattr(ProcessableVideo, stuff)
-        name = getattr(attr, '__name__')
+        name = getattr(attr, "__name__")
         parser.add_argument(
             f"--{name.replace('_', '-')}",
             action=argparse.BooleanOptionalAction,
             help=attr.__doc__,
-            default=False
+            default=False,
         )
     # for stuff in :
     #     print(stuff)
@@ -427,16 +395,16 @@ def create_parser():
 
 
 def _load_config(path: pathlib.Path):
-    with open(path, 'r') as f:
+    with open(path, "r") as f:
         config_ = yaml.load(f.read(), Loader=yaml.Loader)
     return config_
 
 
 def parse_actions(**kwargs):
     to_skip = {
-        'input',
-        'output',
-        'config',
+        "input",
+        "output",
+        "config",
     }
     actions = []
     for k, v in kwargs.items():
@@ -538,18 +506,12 @@ def main():
         return
 
     if given_mime is MimeType.VIDEO:
-        result = ProcessableVideo.process(args.input,
-                                          config,
-                                          actions
-                                          )
+        result = ProcessableVideo.process(args.input, config, actions)
     else:
-        result = NeatImage.process(args.input,
-                                   config,
-                                   actions
-                                   )
+        result = NeatImage.process(args.input, config, actions)
 
     result.save(args.output)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
