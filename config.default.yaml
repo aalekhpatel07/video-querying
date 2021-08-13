@@ -1,29 +1,45 @@
-perturbation:
-  image:
-    pillarbox:
-      target_ratio: 2.0
-      fill: "blur"
-    letterbox:
-      target_ratio: 1.77777777
-      fill: "black"
-    windowbox:
-      height_to_add: 0
-      width_to_add: 0
-      fill: "blur"
-    color_filter:
-      kernel: [1]
-    rotate:
-      angle: 0
-    crop:
-      rows: 100
-      columns: 200
-    scale:
-      x: 1.0
-      y: 1.0
-    scale_uniform:
-      ratio: 1.0
-    scale_to_fit:
-      height:
-      width:
-  video:
-
+image:
+  pillarbox:
+    target_ratio: 2.0
+    fill: "blur"
+  letterbox:
+    target_ratio: 1.77777777
+    fill: "black"
+  windowbox:
+    height_to_add: 0
+    width_to_add: 0
+    fill: "blur"
+  color_filter:
+    kernel: [1]
+  rotate:
+    angle: 0
+  crop:
+    rows: 100
+    columns: 200
+  scale:
+    x: 1.0
+    y: 1.0
+  scale_uniform:
+    ratio: 1.0
+  scale_to_fit:
+    height:
+    width:
+  blur:
+    ksize: 50
+    sigma: 10
+video:
+  adjust_speed:
+    scale: 10.0
+  adjust_duration:
+    scale: 2
+  screenshot:
+    frame: 100
+  crop_duration:
+    start:
+      hour: 0
+      minute: 0
+      second: 1.2
+    end:
+      hour: 0
+      minute: 0
+      second: 5.0

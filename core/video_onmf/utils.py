@@ -114,7 +114,7 @@ def vsv(
                              )
     writer.write(first)
 
-    for frame in tqdm.tqdm(stream_it, desc="Saving frame"):
+    for frame in tqdm.tqdm(stream_it, desc="Saving frames"):
         writer.write(frame)
 
     # del temp
