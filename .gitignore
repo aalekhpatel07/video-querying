@@ -131,3 +131,6 @@ dmypy.json
 # /data
 .idea
 data/media/bunny.mp4
+data/doggie/bunny.mp4
+data/doggie/bunny-desc-1min.mp4
+data/doggie/bunny-desc.mp4

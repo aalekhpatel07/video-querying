@@ -47,3 +47,5 @@ video:
     fps: 3
   rearrange_group:
     group_size: 20
+  embed_descriptors:
+    top: 100

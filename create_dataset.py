@@ -9,13 +9,9 @@ import inspect
 import functools
 import math
 import random
-from copy import deepcopy
 from pprint import pprint as pp
 import numpy as np
-import uuid
 import msgpack as mp
-import tqdm
-import itertools
 
 import cv2 as cv
 

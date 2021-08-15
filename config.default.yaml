@@ -31,7 +31,7 @@ video:
   adjust_speed:
     scale: 10.0
   adjust_duration:
-    scale: 4.0
+    scale: 0.1
   screenshot:
     frame: 100
   crop_duration:
@@ -47,3 +47,5 @@ video:
     fps: 3
   rearrange_group:
     group_size: 40
+  embed_descriptors:
+    top: 100

@@ -76,6 +76,18 @@ class NeatImage:
     def sepia(self):
         self.im = color_filter(self.im, kernel=Kernel.SEPIA)
         return self
+    
+    def grayscale(self):
+        self.im = cv.cvtColor(self.im, cv.COLOR_BGR2GRAY)
+        return self
+    
+    def embed_descriptors(self, top: int):
+        gray= cv.cvtColor(self.im, cv.COLOR_BGR2GRAY)
+        sift = cv.SIFT_create()
+        kp = sift.detect(gray,None)
+        kp = sorted(kp, key=lambda x: x.response, reverse=True)[:top]
+        self.im = cv.drawKeypoints(gray, kp, self.im, flags=cv.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+        return self
 
     def pillarbox(
         self,
@@ -254,6 +266,7 @@ class ProcessableVideo:
         "rotate",
         "flip_horizontal",
         "flip_vertical",
+        "embed_descriptors"
     }
 
     def __init__(
