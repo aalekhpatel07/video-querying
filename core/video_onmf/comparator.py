@@ -1,3 +1,4 @@
+import glob
 import collections as coll
 import typing as tp
 import os
@@ -17,7 +18,8 @@ from . import frames as fm
 def _get_mp(
     directory: tp.Union[pathlib.Path, str]
 ) -> tp.Generator[pathlib.Path, None, None]:
-    return (directory / file for file in os.listdir(directory) if file.endswith(".mp"))
+    root = pathlib.Path(directory)
+    yield from root.rglob("*.mp")
 
 
 def load_file(

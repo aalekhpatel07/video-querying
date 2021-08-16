@@ -33,7 +33,7 @@ video:
   adjust_duration:
     scale: 0.1
   screenshot:
-    frame: 100
+    frame: 70
   crop_duration:
     start:
       hour: 0

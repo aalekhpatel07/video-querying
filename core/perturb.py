@@ -11,9 +11,8 @@ import argparse
 import numpy as np
 import cv2 as cv
 import yaml
-
-from .video_onmf import utils
-from .video_onmf import frames as fm
+from video_onmf import utils
+from video_onmf import frames as fm
 
 
 def _fill_effect(img, fill: tp.Optional[str] = "blur"):
@@ -319,6 +318,23 @@ class NeatVideo:
         if shot is not None:
             return NeatImage(im=shot)
         return self
+
+    def keyframe_indices(self):
+
+        diffs = []
+        prev = None
+        for idx, frame in enumerate(self.to_ndarray_generator()):
+            if prev is None:
+                prev = frame
+                continue
+            curr = np.copy(frame)
+            diff = np.absolute(curr - prev)
+            diffs.append(np.absolute(diff.sum()))
+            prev = np.copy(curr)
+
+        diffs = np.array(diffs)
+        peaks = np.r_[True, diffs[1:] < diffs[:-1]] & np.r_[diffs[:-1] < diffs[1:], True]
+        return np.where(peaks)[1:]
 
     def screenshot_many(
         self, frames: tp.Iterable[int]
