@@ -1,1 +1,1 @@
-find data/* -size +100M | cat >> .gitignore
+find data/* -size +50M | cat >> .gitignore
