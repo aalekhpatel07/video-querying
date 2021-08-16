@@ -3,7 +3,6 @@ import math
 import mimetypes
 import functools
 import itertools
-import pprint
 import random
 import typing as tp
 import pathlib
@@ -13,8 +12,8 @@ import numpy as np
 import cv2 as cv
 import yaml
 
-from video_onmf import utils
-from video_onmf import frames as fm
+from .video_onmf import utils
+from .video_onmf import frames as fm
 
 
 def _fill_effect(img, fill: tp.Optional[str] = "blur"):
@@ -190,7 +189,7 @@ class NeatImage:
         right_rem = columns - left_rem
 
         if rows >= height + 20 or columns >= width + 20:
-            return self.im
+            return self
 
         row_slice = slice(top_rem, height - bottom_rem)
         col_slice = slice(left_rem, width - right_rem)
@@ -252,7 +251,7 @@ def _extend(func):
     return blah
 
 
-class ProcessableVideo:
+class NeatVideo:
 
     extended = {
         "pillarbox",
@@ -284,7 +283,19 @@ class ProcessableVideo:
         return map(lambda x: x.im, self.neat_frame_stream)
 
     @classmethod
-    def read(cls, filepath: tp.Union[str, pathlib.Path]):
+    def read(cls, filepath: tp.Union[str, pathlib.Path], **kwargs):
+        if filepath.suffix == ".yuv":
+            size = kwargs.get("size", None)
+            metadata = {
+                "width": size[0],
+                "height": size[1],
+                "fps": 24,
+                "convert_to_rgb": False
+
+            }
+            return cls(fm.from_video_yuv(filepath, size), metadata)
+            pass
+
         metadata = fm.probe(cv.VideoCapture(str(filepath)))
         return cls(fm.from_video(filepath), metadata)
 
@@ -302,12 +313,21 @@ class ProcessableVideo:
 
     def screenshot(
         self, frame: int
-    ) -> tp.Optional[tp.Union[NeatImage, "ProcessableVideo"]]:
+    ) -> tp.Optional[tp.Union[NeatImage, "NeatVideo"]]:
         shot = next(itertools.islice(self.to_ndarray_generator(), frame, None), None)
 
         if shot is not None:
             return NeatImage(im=shot)
         return self
+
+    def screenshot_many(
+        self, frames: tp.Iterable[int]
+    ) -> tp.Optional[tp.Iterable[NeatImage]]:
+
+        check = set(frame for frame in frames)
+        for idx, frame in enumerate(self.to_ndarray_generator()):
+            if idx in check:
+                yield NeatImage(frame)
 
     def adjust_speed(self, scale: float):
         self.metadata["fps"] *= scale
@@ -379,10 +399,9 @@ class ProcessableVideo:
 
     @classmethod
     def process(
-        cls, filepath: pathlib.Path, config, actions
-    ) -> tp.Union[NeatImage, "ProcessableVideo"]:
-
-        neat = ProcessableVideo.read(filepath=filepath)
+        cls, filepath: pathlib.Path, config, actions, **kwargs
+    ) -> tp.Union[NeatImage, "NeatVideo"]:
+        neat = NeatVideo.read(filepath=filepath, **kwargs)
         for action in actions:
             func = getattr(neat, action)
             kwargs = {}
@@ -431,10 +450,10 @@ def create_parser():
     ignore = {"show", "read", "save", "process", "to_ndarray_generator", "extended"}
 
     neat_image_dir = set(dir(NeatImage))
-    processable_video_dir = set(dir(ProcessableVideo))
+    processable_video_dir = set(dir(NeatVideo))
 
     chained = itertools.chain(
-        neat_image_dir, processable_video_dir - ProcessableVideo.extended
+        neat_image_dir, processable_video_dir - NeatVideo.extended
     )
 
     def filter_fn(x):
@@ -444,7 +463,7 @@ def create_parser():
         try:
             attr = getattr(NeatImage, stuff)
         except AttributeError:
-            attr = getattr(ProcessableVideo, stuff)
+            attr = getattr(NeatVideo, stuff)
         name = getattr(attr, "__name__")
         parser.add_argument(
             f"--{name.replace('_', '-')}",
@@ -488,9 +507,12 @@ def default_config():
 class MimeType(enum.Enum):
     VIDEO = enum.auto()
     IMAGE = enum.auto()
+    VIDEO_YUV = enum.auto()
 
 
 def media_check(path: pathlib.Path) -> tp.Optional[MimeType]:
+    if path.suffix == ".yuv":
+        return MimeType.VIDEO_YUV
     mime = mimetypes.guess_type(path)[0]
     if mime is None:
         return None
@@ -523,10 +545,12 @@ def main():
         print(f"Unable to read media at {args.input}")
         return
 
-    if given_mime is MimeType.VIDEO:
-        result = ProcessableVideo.process(args.input, config, actions)
-    else:
+    if given_mime is MimeType.IMAGE:
         result = NeatImage.process(args.input, config, actions)
+    elif given_mime is MimeType.VIDEO:
+        result = NeatVideo.process(args.input, config, actions)
+    else:
+        result = NeatVideo.process(args.input, config, actions, size=(352, 288))
 
     result.save(args.output)
 
