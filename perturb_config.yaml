@@ -1,0 +1,53 @@
+image:
+  pillarbox:
+    target_ratio: 2.0
+    fill: "blur"
+  letterbox:
+    target_ratio: 2.0
+    fill: "black"
+  windowbox:
+    height_to_add: 100
+    width_to_add: 100
+    fill: "blur"
+  color_filter:
+    kernel: [1]
+  rotate:
+    angle: 45
+  crop:
+    rows: 100
+    columns: 200
+  scale:
+    x: 1.5
+    y: 1.2
+  scale_uniform:
+    ratio: 1.25
+  scale_to_fit:
+    height: 1440
+    width: 2160
+  blur:
+    ksize: 80
+    sigma: 30
+video:
+  adjust_speed:
+    scale: 1.75
+  adjust_duration:
+    scale: 3
+  screenshot:
+    frame: 45
+  screenshot_many:
+    frames: [5, 40, 80, 120, 160]
+  crop_duration:
+    start:
+      hour: 0
+      minute: 0
+      second: 42.5
+    end:
+      hour: 0
+      minute: 1
+      second: 5.5
+  adjust_frames:
+    fps: 60
+  rearrange_group:
+    group_size: 30
+  embed_descriptors:
+    top: 100
